@@ -68,7 +68,6 @@ def build_menu_response(
                     "is_special": item["is_special"]
                 })
 
-        # hide empty categories
         if category_items:
 
             categorized_menu.append({

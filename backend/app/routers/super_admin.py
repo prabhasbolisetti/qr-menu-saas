@@ -10,6 +10,23 @@ from app.middleware.auth_middleware import require_role
 
 from app.services.cloudinary_service import upload_image
 
+from app.services.admin_service import (
+    create_restaurant,
+    create_category,
+    create_menu_item
+)
+
+from app.schemas.restaurant import (
+    CreateRestaurantSchema
+)
+
+from app.schemas.category import (
+    CreateCategorySchema
+)
+
+from app.schemas.menu_item import (
+    CreateMenuItemSchema
+)
 
 router = APIRouter(
     prefix="/super",
@@ -44,3 +61,36 @@ def upload_menu_image(
     return {
         "image_url": image_url
     }
+
+
+@router.post("/restaurants")
+def create_new_restaurant(
+    data: CreateRestaurantSchema,
+    current_user=Depends(require_role("super"))
+):
+
+    restaurant = create_restaurant(data)
+
+    return restaurant
+
+
+@router.post("/categories")
+def create_new_category(
+    data: CreateCategorySchema,
+    current_user=Depends(require_role("super"))
+):
+
+    category = create_category(data)
+
+    return category
+
+
+@router.post("/items")
+def create_new_item(
+    data: CreateMenuItemSchema,
+    current_user=Depends(require_role("super"))
+):
+
+    item = create_menu_item(data)
+
+    return item
