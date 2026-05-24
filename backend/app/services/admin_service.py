@@ -59,3 +59,34 @@ def create_menu_item(data):
     )
 
     return response.data[0]
+
+
+def update_menu_item(
+    item_id: str,
+    data
+):
+
+    update_data = data.dict(
+        exclude_unset=True
+    )
+
+    response = (
+        supabase.table("menu_items")
+        .update(update_data)
+        .eq("id", item_id)
+        .execute()
+    )
+
+    return response.data[0]
+
+
+def delete_menu_item(item_id: str):
+
+    response = (
+        supabase.table("menu_items")
+        .delete()
+        .eq("id", item_id)
+        .execute()
+    )
+
+    return response.data

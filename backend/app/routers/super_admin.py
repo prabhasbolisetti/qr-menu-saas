@@ -13,7 +13,9 @@ from app.services.cloudinary_service import upload_image
 from app.services.admin_service import (
     create_restaurant,
     create_category,
-    create_menu_item
+    create_menu_item,
+    update_menu_item,
+    delete_menu_item
 )
 
 from app.schemas.restaurant import (
@@ -25,7 +27,8 @@ from app.schemas.category import (
 )
 
 from app.schemas.menu_item import (
-    CreateMenuItemSchema
+    CreateMenuItemSchema,
+    UpdateMenuItemSchema
 )
 
 router = APIRouter(
@@ -94,3 +97,30 @@ def create_new_item(
     item = create_menu_item(data)
 
     return item
+
+
+@router.put("/items/{item_id}")
+def update_item(
+    item_id: str,
+    data: UpdateMenuItemSchema,
+    current_user=Depends(require_role("super"))
+):
+
+    item = update_menu_item(
+        item_id,
+        data
+    )
+
+    return item
+
+@router.delete("/items/{item_id}")
+def delete_item(
+    item_id: str,
+    current_user=Depends(require_role("super"))
+):
+
+    delete_menu_item(item_id)
+
+    return {
+        "message": "Item deleted successfully"
+    }

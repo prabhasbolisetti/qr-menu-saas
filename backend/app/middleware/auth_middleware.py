@@ -5,8 +5,8 @@ def get_current_user():
 
     # temporary fake logged-in user
     return {
-        "user_id": "123",
-        "role": "super"
+        "user_id": "12345678-9999-8888-7777-666666666666",
+        "role": "owner"
     }
 
 
