@@ -7,63 +7,68 @@ load_dotenv()
 
 
 class Settings:
-    ENVIRONMENT = os.getenv(
-        "ENVIRONMENT",
-        "development"
-    )
 
-    SUPABASE_URL = os.getenv(
-        "SUPABASE_URL"
-    )
+    def __init__(self):
 
-    SUPABASE_ANON_KEY = os.getenv(
-        "SUPABASE_ANON_KEY"
-    )
+        self.ENVIRONMENT = os.getenv(
+            "ENVIRONMENT",
+            "development"
+        )
 
-    SUPABASE_SERVICE_ROLE_KEY = os.getenv(
-        "SUPABASE_SERVICE_ROLE_KEY"
-    )
+        self.SUPABASE_URL = os.getenv(
+            "SUPABASE_URL"
+        )
 
-    CLOUDINARY_CLOUD_NAME = os.getenv(
-        "CLOUDINARY_CLOUD_NAME"
-    )
+        self.SUPABASE_ANON_KEY = os.getenv(
+            "SUPABASE_ANON_KEY"
+        )
 
-    CLOUDINARY_API_KEY = os.getenv(
-        "CLOUDINARY_API_KEY"
-    )
+        self.SUPABASE_SERVICE_ROLE_KEY = os.getenv(
+            "SUPABASE_SERVICE_ROLE_KEY"
+        )
 
-    CLOUDINARY_API_SECRET = os.getenv(
-        "CLOUDINARY_API_SECRET"
-    )
+        self.CLOUDINARY_CLOUD_NAME = os.getenv(
+            "CLOUDINARY_CLOUD_NAME"
+        )
 
-    FRONTEND_PUBLIC_BASE_URL = os.getenv(
-        "FRONTEND_PUBLIC_BASE_URL",
-        "https://qr-menu-saas-ten.vercel.app"
-    )
+        self.CLOUDINARY_API_KEY = os.getenv(
+            "CLOUDINARY_API_KEY"
+        )
 
-    BACKEND_CORS_ORIGINS = os.getenv(
-        "BACKEND_CORS_ORIGINS",
-        (
-            "http://localhost:5173,http://localhost:5174,http://localhost:5175,"
-            "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,"
+        self.CLOUDINARY_API_SECRET = os.getenv(
+            "CLOUDINARY_API_SECRET"
+        )
+
+        self.FRONTEND_PUBLIC_BASE_URL = os.getenv(
+            "FRONTEND_PUBLIC_BASE_URL",
             "https://qr-menu-saas-ten.vercel.app"
         )
-    )
 
-    BACKEND_ALLOWED_HOSTS = os.getenv(
-        "BACKEND_ALLOWED_HOSTS",
-        "*"
-    )
+        self.BACKEND_CORS_ORIGINS = os.getenv(
+            "BACKEND_CORS_ORIGINS",
+            (
+                "http://localhost:5173,http://localhost:5174,http://localhost:5175,"
+                "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,"
+                "https://qr-menu-saas-ten.vercel.app"
+            )
+        )
 
-    MAX_IMAGE_UPLOAD_MB = int(os.getenv(
-        "MAX_IMAGE_UPLOAD_MB",
-        "5"
-    ))
+        self.BACKEND_ALLOWED_HOSTS = os.getenv(
+            "BACKEND_ALLOWED_HOSTS",
+            "*"
+        )
 
-    CLOUDINARY_FOLDER = os.getenv(
-        "CLOUDINARY_FOLDER",
-        "qr-menu/menu-items"
-    )
+        self.MAX_IMAGE_UPLOAD_MB = int(
+            os.getenv(
+                "MAX_IMAGE_UPLOAD_MB",
+                "5"
+            )
+        )
+
+        self.CLOUDINARY_FOLDER = os.getenv(
+            "CLOUDINARY_FOLDER",
+            "qr-menu/menu-items"
+        )
 
     @property
     def is_production(self):
@@ -119,9 +124,14 @@ class Settings:
                 + ", ".join(missing)
             )
 
-        parsed_frontend_url = urlparse(self.FRONTEND_PUBLIC_BASE_URL)
+        parsed_frontend_url = urlparse(
+            self.FRONTEND_PUBLIC_BASE_URL
+        )
 
-        if parsed_frontend_url.scheme not in {"http", "https"} or not parsed_frontend_url.netloc:
+        if (
+            parsed_frontend_url.scheme not in {"http", "https"}
+            or not parsed_frontend_url.netloc
+        ):
             raise RuntimeError(
                 "FRONTEND_PUBLIC_BASE_URL must be an absolute http(s) URL"
             )
