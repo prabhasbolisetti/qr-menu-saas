@@ -7,6 +7,8 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
+      - key: ENVIRONMENT
+        value: production
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY
@@ -19,7 +21,13 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
+      - key: CLOUDINARY_FOLDER
+        value: qr-menu/menu-items
+      - key: MAX_IMAGE_UPLOAD_MB
+        value: 5
       - key: FRONTEND_PUBLIC_BASE_URL
         sync: false
       - key: BACKEND_CORS_ORIGINS
+        sync: false
+      - key: BACKEND_ALLOWED_HOSTS
         sync: false
