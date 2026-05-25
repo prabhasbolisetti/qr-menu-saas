@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.middleware.auth_middleware import get_current_user
+from app.middleware.auth_middleware import build_user_identity, get_current_user
 from app.schemas.user import LoginSchema
-from app.services.supabase_service import supabase
+from app.services.supabase_service import auth_supabase
 
 
 router = APIRouter(
@@ -11,22 +11,11 @@ router = APIRouter(
 )
 
 
-def _role_from_user(user):
-
-    app_metadata = getattr(user, "app_metadata", None) or {}
-    user_metadata = getattr(user, "user_metadata", None) or {}
-
-    return (
-        app_metadata.get("role")
-        or user_metadata.get("role")
-    )
-
-
 @router.post("/login")
 def login(data: LoginSchema):
 
     try:
-        response = supabase.auth.sign_in_with_password({
+        response = auth_supabase.auth.sign_in_with_password({
             "email": data.email,
             "password": data.password
         })
@@ -45,22 +34,16 @@ def login(data: LoginSchema):
             detail="Invalid email or password"
         )
 
-    role = _role_from_user(user)
-
-    if not role:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User role not configured"
-        )
+    current_user = build_user_identity(user)
 
     return {
         "access_token": session.access_token,
         "refresh_token": session.refresh_token,
         "token_type": "bearer",
         "user": {
-            "id": user.id,
-            "email": user.email,
-            "role": role
+            "id": current_user["user_id"],
+            "email": current_user["email"],
+            "role": current_user["role"]
         }
     }
 

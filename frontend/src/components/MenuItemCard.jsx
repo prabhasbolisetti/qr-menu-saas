@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 function formatPrice(amount) {
   if (amount == null) return "";
 
@@ -9,7 +11,8 @@ function formatPrice(amount) {
 }
 
 export default function MenuItemCard({ item }) {
-  const hasImage = Boolean(item.image_url);
+  const [imageFailed, setImageFailed] = useState(false);
+  const hasImage = Boolean(item.image_url) && !imageFailed;
   const isUnavailable = item.is_available === false;
 
   return (
@@ -40,6 +43,11 @@ export default function MenuItemCard({ item }) {
             </h3>
             {item.is_special && (
               <span className="rounded border border-orange-200 bg-orange-50 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-normal text-orange-700">
+                Special
+              </span>
+            )}
+            {item.is_bestseller && (
+              <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-normal text-amber-700">
                 Bestseller
               </span>
             )}
@@ -74,6 +82,8 @@ export default function MenuItemCard({ item }) {
               src={item.image_url}
               alt={item.name}
               loading="lazy"
+              referrerPolicy="no-referrer"
+              onError={() => setImageFailed(true)}
               className="h-full w-full object-cover"
             />
           ) : (

@@ -1,8 +1,37 @@
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+import logging
 
 from app.middleware.auth_middleware import require_role
-from app.schemas.category import CreateCategorySchema, UpdateCategorySchema
-from app.schemas.menu_item import CreateMenuItemSchema, UpdateMenuItemSchema
+
+logger = logging.getLogger(__name__)
+
+
+def _database_error_detail(operation: str, exc: Exception):
+
+    error_text = str(exc)
+
+    if "is_open" in error_text and "restaurants" in error_text:
+        return (
+            f"{operation} failed: database migration required "
+            "for restaurants.is_open"
+        )
+
+    return f"{operation} failed"
+
+
+def _database_error_status(exc: Exception):
+
+    error_text = str(exc)
+
+    if "is_open" in error_text and "restaurants" in error_text:
+        return 503
+
+    return 500
+
+
+from app.schemas.category import OwnerCreateCategorySchema, UpdateCategorySchema
+from app.schemas.menu_item import OwnerCreateMenuItemSchema, UpdateMenuItemSchema
+from app.schemas.restaurant import UpdateRestaurantOpenStateSchema
 from app.services.cloudinary_service import upload_image
 from app.services.owner_service import (
     create_owner_category,
@@ -18,8 +47,10 @@ from app.services.owner_service import (
     update_item_price,
     update_owner_category,
     update_owner_item,
+    update_owner_restaurant_open_state,
 )
 from app.services.qr_service import build_qr_response
+from app.utils.uploads import validate_image_upload
 
 
 router = APIRouter(
@@ -93,6 +124,32 @@ def owner_restaurant_qr(
     return build_qr_response(restaurant)
 
 
+@router.patch("/restaurant/open-state")
+def update_restaurant_open_state(
+    data: UpdateRestaurantOpenStateSchema,
+    current_user=Depends(require_role("owner"))
+):
+
+    restaurant = _owner_restaurant(current_user)
+
+    try:
+        return update_owner_restaurant_open_state(
+            restaurant["id"],
+            data.is_open
+        )
+    except Exception as e:
+        logger.error(
+            "Failed to update owner restaurant open state restaurant_id=%s error=%s",
+            restaurant["id"],
+            e,
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=_database_error_status(e),
+            detail=_database_error_detail("Update restaurant open state", e)
+        ) from e
+
+
 @router.get("/categories")
 def owner_categories(
     current_user=Depends(require_role("owner"))
@@ -107,14 +164,26 @@ def owner_categories(
 
 @router.post("/categories")
 def create_category(
-    data: CreateCategorySchema,
+    data: OwnerCreateCategorySchema,
     current_user=Depends(require_role("owner"))
 ):
 
-    restaurant = _owner_restaurant(current_user)
-    data.restaurant_id = restaurant["id"]
-
-    return create_owner_category(data)
+    try:
+        restaurant = _owner_restaurant(current_user)
+        payload = data.model_dump()
+        payload["restaurant_id"] = restaurant["id"]
+        logger.info("Owner creating category payload=%s", payload)
+        category = create_owner_category(payload)
+        logger.info(f"Category created: {category}")
+        return category
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create owner category: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create category: {str(e)}"
+        ) from e
 
 
 @router.put("/categories/{category_id}")
@@ -131,6 +200,7 @@ def update_category(
     )
 
     return update_owner_category(
+        restaurant["id"],
         category_id,
         data
     )
@@ -148,7 +218,10 @@ def delete_category(
         category_id
     )
 
-    delete_owner_category(category_id)
+    delete_owner_category(
+        restaurant["id"],
+        category_id
+    )
 
     return {
         "message": "Category deleted successfully"
@@ -169,18 +242,30 @@ def owner_items(
 
 @router.post("/items")
 def create_item(
-    data: CreateMenuItemSchema,
+    data: OwnerCreateMenuItemSchema,
     current_user=Depends(require_role("owner"))
 ):
 
-    restaurant = _owner_restaurant(current_user)
-    _assert_category_belongs_to_owner(
-        restaurant["id"],
-        data.category_id
-    )
-    data.restaurant_id = restaurant["id"]
-
-    return create_owner_item(data)
+    try:
+        restaurant = _owner_restaurant(current_user)
+        _assert_category_belongs_to_owner(
+            restaurant["id"],
+            data.category_id
+        )
+        payload = data.model_dump()
+        payload["restaurant_id"] = restaurant["id"]
+        logger.info("Owner creating menu item payload=%s", payload)
+        item = create_owner_item(payload)
+        logger.info(f"Menu item created: {item}")
+        return item
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create owner menu item: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create menu item: {str(e)}"
+        ) from e
 
 
 @router.put("/items/{item_id}")
@@ -196,7 +281,14 @@ def update_item(
         item_id
     )
 
+    if data.category_id:
+        _assert_category_belongs_to_owner(
+            restaurant["id"],
+            data.category_id
+        )
+
     return update_owner_item(
+        restaurant["id"],
         item_id,
         data
     )
@@ -214,7 +306,10 @@ def delete_item(
         item_id
     )
 
-    delete_owner_item(item_id)
+    delete_owner_item(
+        restaurant["id"],
+        item_id
+    )
 
     return {
         "message": "Item deleted successfully"
@@ -234,6 +329,7 @@ def toggle_item(
     )
 
     return toggle_item_availability(
+        restaurant["id"],
         item_id,
         item["is_available"]
     )
@@ -253,6 +349,7 @@ def update_price(
     )
 
     return update_item_price(
+        restaurant["id"],
         item_id,
         price
     )
@@ -264,13 +361,15 @@ def upload_menu_image(
     current_user=Depends(require_role("owner"))
 ):
 
-    if not file.content_type.startswith("image/"):
-        raise HTTPException(
-            status_code=400,
-            detail="Only image files allowed"
-        )
+    validate_image_upload(file)
 
-    image_url = upload_image(file.file)
+    try:
+        image_url = upload_image(file.file)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=str(exc)
+        ) from exc
 
     return {
         "image_url": image_url

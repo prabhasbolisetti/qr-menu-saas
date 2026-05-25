@@ -309,9 +309,9 @@ npm run dev
 ```
 
 ### Test Routes
-- Customer: `http://localhost:5173/menu/pizza-palace`
-- Admin: `http://localhost:5173/super/restaurants`
-- Owner: `http://localhost:5173/owner`
+- Customer: `https://qr-menu-saas-ten.vercel.app/menu/pizza-palace`
+- Admin: `https://qr-menu-saas-ten.vercel.app/super/restaurants`
+- Owner: `https://qr-menu-saas-ten.vercel.app/owner`
 
 ### Make Changes
 1. Edit any `.jsx` file

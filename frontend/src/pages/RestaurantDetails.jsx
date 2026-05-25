@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import api from "../api/axios";
 import DashboardHeader from "../components/DashboardHeader";
 import CategorySection from "../components/CategorySection";
+import { downloadImage } from "../utils/download";
 
 const emptyCategoryForm = {
   name: "",
@@ -20,6 +21,7 @@ const emptyItemForm = {
   is_available: true,
   is_veg: true,
   is_special: false,
+  is_bestseller: false,
   display_order: 0,
 };
 
@@ -40,8 +42,12 @@ function buildEditDrafts(menu) {
         name: item.name || "",
         price: item.price ?? "",
         mrp_price: item.mrp_price ?? "",
+        description: item.description || "",
+        image_url: item.image_url || "",
+        is_available: Boolean(item.is_available),
         is_veg: Boolean(item.is_veg),
         is_special: Boolean(item.is_special),
+        is_bestseller: Boolean(item.is_bestseller),
       };
     });
     return drafts;
@@ -116,11 +122,13 @@ export default function RestaurantDetails() {
 
   const metrics = useMemo(() => {
     const specialCount = items.filter((item) => item.is_special).length;
+    const bestsellerCount = items.filter((item) => item.is_bestseller).length;
 
     return {
       categories: categories.length,
       items: items.length,
       specials: specialCount,
+      bestsellers: bestsellerCount,
     };
   }, [categories.length, items]);
 
@@ -201,6 +209,7 @@ export default function RestaurantDetails() {
         is_available: itemForm.is_available,
         is_veg: itemForm.is_veg,
         is_special: itemForm.is_special,
+        is_bestseller: itemForm.is_bestseller,
         display_order: Number(itemForm.display_order) || 0,
       });
 
@@ -227,10 +236,14 @@ export default function RestaurantDetails() {
     try {
       await api.put(`/super/items/${itemId}`, {
         name: draft.name,
+        description: draft.description || null,
         price: draft.price === "" ? null : Number(draft.price),
         mrp_price: draft.mrp_price === "" ? null : Number(draft.mrp_price),
+        image_url: draft.image_url || null,
+        is_available: draft.is_available,
         is_veg: draft.is_veg,
         is_special: draft.is_special,
+        is_bestseller: draft.is_bestseller,
       });
 
       setEditingItemId("");
@@ -258,6 +271,96 @@ export default function RestaurantDetails() {
     } catch (err) {
       console.error("Failed to delete item:", err);
       setError(err?.response?.data?.detail || "Failed to delete menu item");
+    } finally {
+      setSubmitting("");
+    }
+  }
+
+  async function updateCategory(category) {
+    const nextName = window.prompt("Category name", category.name);
+    if (!nextName || nextName.trim() === category.name) return;
+
+    setSubmitting(category.id);
+    setError("");
+
+    try {
+      await api.put(`/super/categories/${category.id}`, {
+        name: nextName.trim(),
+        icon_emoji: category.icon_emoji || null,
+        display_order: category.display_order ?? 0,
+      });
+      await loadRestaurant();
+      showSuccess("Category updated");
+    } catch (err) {
+      console.error("Failed to update category:", err);
+      setError(err?.response?.data?.detail || "Failed to update category");
+    } finally {
+      setSubmitting("");
+    }
+  }
+
+  async function deleteCategory(categoryId) {
+    const confirmed = window.confirm("Delete this category? Items in this category will also be deleted.");
+    if (!confirmed) return;
+
+    setSubmitting(categoryId);
+    setError("");
+
+    try {
+      await api.delete(`/super/categories/${categoryId}`);
+      await loadRestaurant();
+      showSuccess("Category deleted");
+    } catch (err) {
+      console.error("Failed to delete category:", err);
+      setError(err?.response?.data?.detail || "Failed to delete category");
+    } finally {
+      setSubmitting("");
+    }
+  }
+
+  async function toggleAvailability(item) {
+    const draft = editDrafts[item.id] || {};
+    setSubmitting(item.id);
+    setError("");
+
+    try {
+      await api.put(`/super/items/${item.id}`, {
+        is_available: !item.is_available,
+        name: draft.name || item.name,
+        description: draft.description || item.description || null,
+        price: draft.price === "" ? item.price : Number(draft.price ?? item.price),
+        mrp_price:
+          draft.mrp_price === "" || (draft.mrp_price == null && item.mrp_price == null)
+            ? null
+            : Number(draft.mrp_price ?? item.mrp_price),
+        image_url: draft.image_url || item.image_url || null,
+        is_veg: draft.is_veg ?? item.is_veg,
+        is_special: draft.is_special ?? item.is_special,
+        is_bestseller: draft.is_bestseller ?? item.is_bestseller,
+      });
+      await loadRestaurant();
+      showSuccess(item.is_available ? "Item hidden" : "Item available");
+    } catch (err) {
+      console.error("Failed to update availability:", err);
+      setError(err?.response?.data?.detail || "Failed to update availability");
+    } finally {
+      setSubmitting("");
+    }
+  }
+
+  async function updateOpenState(isOpen) {
+    setSubmitting("open-state");
+    setError("");
+
+    try {
+      const response = await api.patch(`/super/restaurants/${id}/open-state`, {
+        is_open: isOpen,
+      });
+      setRestaurant(response.data);
+      showSuccess(isOpen ? "Restaurant marked open" : "Restaurant marked closed");
+    } catch (err) {
+      console.error("Failed to update restaurant state:", err);
+      setError(err?.response?.data?.detail || "Failed to update restaurant state");
     } finally {
       setSubmitting("");
     }
@@ -338,8 +441,9 @@ export default function RestaurantDetails() {
             <p className="mt-2 text-2xl font-bold text-gray-950">{metrics.items}</p>
           </div>
           <div className="rounded-lg border border-gray-100 bg-white p-4">
-            <p className="text-sm font-medium text-gray-500">Bestsellers</p>
+            <p className="text-sm font-medium text-gray-500">Specials / bestsellers</p>
             <p className="mt-2 text-2xl font-bold text-gray-950">{metrics.specials}</p>
+            <p className="mt-1 text-xs font-medium text-gray-500">{metrics.bestsellers} bestsellers</p>
           </div>
         </section>
 
@@ -351,6 +455,25 @@ export default function RestaurantDetails() {
                 <h2 className="font-bold text-gray-950">QR code</h2>
                 <p className="mt-1 break-all text-sm text-gray-500">{qr.menu_url}</p>
               </div>
+              <button
+                type="button"
+                onClick={() => downloadImage(qr.qr_image_url, `${restaurant.slug}-qr.png`)}
+                className="h-10 rounded-lg border border-gray-200 px-4 text-sm font-semibold text-gray-900 hover:bg-gray-50"
+              >
+                Download QR
+              </button>
+              <button
+                type="button"
+                disabled={submitting === "open-state"}
+                onClick={() => updateOpenState(restaurant.is_open === false)}
+                className={`h-10 rounded-lg px-4 text-sm font-semibold disabled:opacity-50 ${
+                  restaurant.is_open === false
+                    ? "bg-green-600 text-white hover:bg-green-700"
+                    : "bg-red-600 text-white hover:bg-red-700"
+                }`}
+              >
+                {restaurant.is_open === false ? "Mark open" : "Mark closed"}
+              </button>
             </div>
           </section>
         )}
@@ -521,6 +644,16 @@ export default function RestaurantDetails() {
                         setItemForm((current) => ({ ...current, is_special: event.target.checked }))
                       }
                     />
+                    Special
+                  </label>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={itemForm.is_bestseller}
+                      onChange={(event) =>
+                        setItemForm((current) => ({ ...current, is_bestseller: event.target.checked }))
+                      }
+                    />
                     Bestseller
                   </label>
                   <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
@@ -560,7 +693,7 @@ export default function RestaurantDetails() {
             <div className="rounded-lg border border-gray-100 bg-white p-4">
               <h2 className="text-base font-bold text-gray-950">Visible public menu</h2>
               <p className="mt-1 text-sm text-gray-500">
-                This preview uses the public menu endpoint, so unavailable items are intentionally hidden.
+                This preview uses the public menu endpoint, including unavailable item states.
               </p>
             </div>
 
@@ -574,7 +707,31 @@ export default function RestaurantDetails() {
             ) : (
               managementMenu.map((category) => (
                 <div key={category.id} className="space-y-3">
-                  <CategorySection category={category} />
+                  <div className="rounded-lg border border-gray-100 bg-white">
+                    <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                      <div>
+                        <h2 className="font-bold text-gray-950">{category.name}</h2>
+                        <p className="text-sm text-gray-500">{category.items.length} items</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => updateCategory(category)}
+                          className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-900 hover:bg-gray-50"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteCategory(category.id)}
+                          className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                    <CategorySection category={category} />
+                  </div>
 
                   <div className="rounded-lg border border-gray-100 bg-white">
                     <div className="border-b border-gray-100 px-4 py-3">
@@ -597,6 +754,34 @@ export default function RestaurantDetails() {
                                       setEditDrafts((current) => ({
                                         ...current,
                                         [item.id]: { ...draft, name: event.target.value },
+                                      }))
+                                    }
+                                    className="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-gray-400"
+                                  />
+                                </div>
+                                <div className="md:col-span-4">
+                                  <label className="mb-1 block text-xs font-medium text-gray-600">Description</label>
+                                  <textarea
+                                    value={draft.description || ""}
+                                    onChange={(event) =>
+                                      setEditDrafts((current) => ({
+                                        ...current,
+                                        [item.id]: { ...draft, description: event.target.value },
+                                      }))
+                                    }
+                                    rows="2"
+                                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-gray-400"
+                                  />
+                                </div>
+                                <div className="md:col-span-4">
+                                  <label className="mb-1 block text-xs font-medium text-gray-600">Image URL</label>
+                                  <input
+                                    type="url"
+                                    value={draft.image_url || ""}
+                                    onChange={(event) =>
+                                      setEditDrafts((current) => ({
+                                        ...current,
+                                        [item.id]: { ...draft, image_url: event.target.value },
                                       }))
                                     }
                                     className="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-gray-400"
@@ -653,6 +838,19 @@ export default function RestaurantDetails() {
                                   <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
                                     <input
                                       type="checkbox"
+                                      checked={Boolean(draft.is_available)}
+                                      onChange={(event) =>
+                                        setEditDrafts((current) => ({
+                                          ...current,
+                                          [item.id]: { ...draft, is_available: event.target.checked },
+                                        }))
+                                      }
+                                    />
+                                    Available
+                                  </label>
+                                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                                    <input
+                                      type="checkbox"
                                       checked={Boolean(draft.is_veg)}
                                       onChange={(event) =>
                                         setEditDrafts((current) => ({
@@ -674,6 +872,19 @@ export default function RestaurantDetails() {
                                         }))
                                       }
                                     />
+                                    Special
+                                  </label>
+                                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(draft.is_bestseller)}
+                                      onChange={(event) =>
+                                        setEditDrafts((current) => ({
+                                          ...current,
+                                          [item.id]: { ...draft, is_bestseller: event.target.checked },
+                                        }))
+                                      }
+                                    />
                                     Bestseller
                                   </label>
                                 </div>
@@ -684,11 +895,20 @@ export default function RestaurantDetails() {
                                   <p className="font-semibold text-gray-950">{item.name}</p>
                                   <p className="mt-1 text-sm text-gray-500">
                                     {formatPrice(item.price)}
-                                    {item.is_special ? " / Bestseller" : ""}
+                                    {item.is_special ? " / Special" : ""}
+                                    {item.is_bestseller ? " / Bestseller" : ""}
                                     {item.is_veg ? " / Veg" : " / Non-veg"}
+                                    {item.is_available ? "" : " / Hidden"}
                                   </p>
                                 </div>
                                 <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleAvailability(item)}
+                                    className="h-9 rounded-lg border border-gray-200 px-3 text-xs font-semibold text-gray-900 hover:bg-gray-50"
+                                  >
+                                    {item.is_available ? "Hide" : "Show"}
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => setEditingItemId(item.id)}

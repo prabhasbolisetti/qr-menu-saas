@@ -1,0 +1,16 @@
+{
+  "name": "QR Menu SaaS",
+  "short_name": "QR Menu",
+  "description": "Mobile-first QR menus for restaurants.",
+  "start_url": "/login",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#111827",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

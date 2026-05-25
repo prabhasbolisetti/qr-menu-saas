@@ -22,12 +22,11 @@ export default function SuperDashboard() {
     password: "",
     full_name: "",
   });
-  const [createdOwner, setCreatedOwner] = useState(null);
   const [formData, setFormData] = useState({
-    owner_id: "",
     name: "",
     slug: "",
     city: "",
+    is_open: true,
   });
 
   useEffect(() => {
@@ -55,59 +54,47 @@ export default function SuperDashboard() {
     setSubmitting(true);
     setSuccessMessage("");
 
+    if (!ownerForm.email || ownerForm.password.length < 6) {
+      alert("Owner email and a password of at least 6 characters are required.");
+      setSubmitting(false);
+      return;
+    }
+
     try {
-      await api.post("/super/restaurants", {
-        ...formData,
+      const response = await api.post("/super/restaurants/onboard", {
+        owner_email: ownerForm.email,
+        owner_password: ownerForm.password,
+        owner_full_name: ownerForm.full_name || null,
+        name: formData.name,
+        slug: formData.slug,
+        city: formData.city,
         logo_url: null,
         is_active: true,
+        is_open: formData.is_open,
       });
 
-      const response = await api.get("/super/restaurants");
-      setRestaurants(response.data || []);
+      setRestaurants((current) => [
+        response.data.restaurant,
+        ...current,
+      ]);
 
       setFormData({
-        owner_id: "",
         name: "",
         slug: "",
         city: "",
+        is_open: true,
       });
-      setShowForm(false);
-      setSuccessMessage("Restaurant created successfully!");
-      setTimeout(() => setSuccessMessage(""), 3000);
-    } catch (error) {
-      console.error("Failed to create restaurant:", error);
-      alert(error?.response?.data?.detail || "Failed to create restaurant");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function createOwner(e) {
-    e.preventDefault();
-    setSubmitting(true);
-    setSuccessMessage("");
-
-    try {
-      const response = await api.post("/super/owners", {
-        email: ownerForm.email,
-        password: ownerForm.password,
-        full_name: ownerForm.full_name || null,
-      });
-      setCreatedOwner(response.data);
-      setFormData((current) => ({
-        ...current,
-        owner_id: response.data.id,
-      }));
       setOwnerForm({
         email: "",
         password: "",
         full_name: "",
       });
-      setSuccessMessage("Owner account created. Owner UUID filled into restaurant form.");
+      setShowForm(false);
+      setSuccessMessage("Restaurant, owner account, role, and QR created successfully.");
       setTimeout(() => setSuccessMessage(""), 3000);
     } catch (error) {
-      console.error("Failed to create owner:", error);
-      alert(error?.response?.data?.detail || "Failed to create owner account");
+      console.error("Failed to create restaurant:", error);
+      alert(error?.response?.data?.detail || "Failed to onboard restaurant");
     } finally {
       setSubmitting(false);
     }
@@ -188,9 +175,9 @@ export default function SuperDashboard() {
 
         {showForm && (
           <section className="mb-6 grid gap-4 lg:grid-cols-[360px_1fr]">
-            <form onSubmit={createOwner} className="rounded-lg border border-gray-100 bg-white p-4">
+            <div className="rounded-lg border border-gray-100 bg-white p-4">
               <h2 className="text-base font-bold text-gray-950">Create owner account</h2>
-              <p className="mt-1 text-sm text-gray-500">Creates a Supabase Auth user with owner role metadata.</p>
+              <p className="mt-1 text-sm text-gray-500">Created automatically with owner role when this restaurant is submitted.</p>
               <div className="mt-4 space-y-3">
                 <input
                   type="email"
@@ -217,19 +204,7 @@ export default function SuperDashboard() {
                   placeholder="Temporary password"
                 />
               </div>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="mt-4 h-10 w-full rounded-lg border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-900 hover:bg-gray-50 disabled:opacity-50"
-              >
-                Create owner
-              </button>
-              {createdOwner && (
-                <p className="mt-3 break-all rounded bg-gray-50 p-3 text-xs text-gray-600">
-                  Owner UUID: {createdOwner.id}
-                </p>
-              )}
-            </form>
+            </div>
 
             <form
               onSubmit={createRestaurant}
@@ -237,20 +212,7 @@ export default function SuperDashboard() {
             >
               <div className="sm:col-span-2">
                 <h2 className="text-base font-bold text-gray-950">Create restaurant</h2>
-                <p className="mt-1 text-sm text-gray-500">Owner UUID must come from the authenticated owner account.</p>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Owner UUID</label>
-                <input
-                  type="text"
-                  name="owner_id"
-                  placeholder="Enter owner UUID"
-                  value={formData.owner_id}
-                  onChange={handleChange}
-                  required
-                  className="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-gray-400"
-                />
+                <p className="mt-1 text-sm text-gray-500">Creates the restaurant, links it to the owner, and generates the permanent QR.</p>
               </div>
 
               <div>
@@ -291,6 +253,17 @@ export default function SuperDashboard() {
                   className="h-10 w-full rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-gray-400"
                 />
               </div>
+
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 sm:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={formData.is_open}
+                  onChange={(event) =>
+                    setFormData((current) => ({ ...current, is_open: event.target.checked }))
+                  }
+                />
+                Restaurant is open
+              </label>
 
               <div className="flex gap-3 sm:col-span-2">
                 <button
@@ -351,7 +324,9 @@ export default function SuperDashboard() {
                       >
                         {restaurant.is_active ? "Active" : "Inactive"}
                       </span>
-                      <span className="text-sm font-semibold text-gray-900">Open</span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {restaurant.is_open === false ? "Closed" : "Open"}
+                      </span>
                     </div>
                   </div>
                 </Link>

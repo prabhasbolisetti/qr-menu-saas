@@ -74,9 +74,9 @@ npm run dev
 ```
 
 ### 2. View in Browser
-- Customer menu: `http://localhost:5173/menu/pizza-palace`
-- Admin dashboard: `http://localhost:5173/super/restaurants`
-- Owner dashboard: `http://localhost:5173/owner`
+- Customer menu: `https://qr-menu-saas-ten.vercel.app/menu/pizza-palace`
+- Admin dashboard: `https://qr-menu-saas-ten.vercel.app/super/restaurants`
+- Owner dashboard: `https://qr-menu-saas-ten.vercel.app/owner`
 
 ### 3. Build for Production
 ```bash

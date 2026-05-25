@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../api/axios";
 import DashboardHeader from "../components/DashboardHeader";
+import { downloadImage } from "../utils/download";
 
 const emptyCategoryForm = {
   name: "",
@@ -18,6 +19,7 @@ const emptyItemForm = {
   is_available: true,
   is_veg: true,
   is_special: false,
+  is_bestseller: false,
   display_order: 0,
 };
 
@@ -80,6 +82,7 @@ export default function OwnerDashboard() {
             is_available: Boolean(item.is_available),
             is_veg: Boolean(item.is_veg),
             is_special: Boolean(item.is_special),
+            is_bestseller: Boolean(item.is_bestseller),
           };
           return drafts;
         }, {})
@@ -175,6 +178,7 @@ export default function OwnerDashboard() {
         is_available: itemForm.is_available,
         is_veg: itemForm.is_veg,
         is_special: itemForm.is_special,
+        is_bestseller: itemForm.is_bestseller,
         display_order: Number(itemForm.display_order) || 0,
       });
 
@@ -205,6 +209,7 @@ export default function OwnerDashboard() {
         is_available: draft.is_available,
         is_veg: draft.is_veg,
         is_special: draft.is_special,
+        is_bestseller: draft.is_bestseller,
       });
       setEditingItemId("");
       await loadDashboard();
@@ -264,6 +269,47 @@ export default function OwnerDashboard() {
     } catch (err) {
       console.error("Failed to delete category:", err);
       setError(err?.response?.data?.detail || "Unable to delete category");
+    } finally {
+      setSubmitting("");
+    }
+  }
+
+  async function updateCategory(category) {
+    const nextName = window.prompt("Category name", category.name);
+    if (!nextName || nextName.trim() === category.name) return;
+
+    setSubmitting(category.id);
+    setError("");
+
+    try {
+      await api.put(`/owner/categories/${category.id}`, {
+        name: nextName.trim(),
+        icon_emoji: category.icon_emoji || null,
+        display_order: category.display_order ?? 0,
+      });
+      await loadDashboard();
+      showSuccess("Category updated");
+    } catch (err) {
+      console.error("Failed to update category:", err);
+      setError(err?.response?.data?.detail || "Unable to update category");
+    } finally {
+      setSubmitting("");
+    }
+  }
+
+  async function updateOpenState(isOpen) {
+    setSubmitting("open-state");
+    setError("");
+
+    try {
+      const response = await api.patch("/owner/restaurant/open-state", {
+        is_open: isOpen,
+      });
+      setRestaurant(response.data);
+      showSuccess(isOpen ? "Restaurant marked open" : "Restaurant marked closed");
+    } catch (err) {
+      console.error("Failed to update restaurant state:", err);
+      setError(err?.response?.data?.detail || "Unable to update restaurant state");
     } finally {
       setSubmitting("");
     }
@@ -342,6 +388,38 @@ export default function OwnerDashboard() {
                 <h2 className="font-bold text-gray-950">Restaurant QR code</h2>
                 <p className="mt-1 break-all text-sm text-gray-500">{qr.menu_url}</p>
               </div>
+              <button
+                type="button"
+                onClick={() => downloadImage(qr.qr_image_url, `${restaurant.slug}-qr.png`)}
+                className="h-10 rounded-lg border border-gray-200 px-4 text-sm font-semibold text-gray-900 hover:bg-gray-50"
+              >
+                Download QR
+              </button>
+            </div>
+          </section>
+        )}
+
+        {restaurant && (
+          <section className="mt-6 rounded-lg border border-gray-100 bg-white p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="font-bold text-gray-950">Restaurant status</h2>
+                <p className="mt-1 text-sm text-gray-500">
+                  Customers see this state on the public QR menu.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={submitting === "open-state"}
+                onClick={() => updateOpenState(restaurant.is_open === false)}
+                className={`h-10 rounded-lg px-4 text-sm font-semibold disabled:opacity-50 ${
+                  restaurant.is_open === false
+                    ? "bg-green-600 text-white hover:bg-green-700"
+                    : "bg-red-600 text-white hover:bg-red-700"
+                }`}
+              >
+                {restaurant.is_open === false ? "Mark open" : "Mark closed"}
+              </button>
             </div>
           </section>
         )}
@@ -450,6 +528,10 @@ export default function OwnerDashboard() {
                   </label>
                   <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
                     <input type="checkbox" checked={itemForm.is_special} onChange={(event) => setItemForm((current) => ({ ...current, is_special: event.target.checked }))} />
+                    Special
+                  </label>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <input type="checkbox" checked={itemForm.is_bestseller} onChange={(event) => setItemForm((current) => ({ ...current, is_bestseller: event.target.checked }))} />
                     Bestseller
                   </label>
                   <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
@@ -489,13 +571,22 @@ export default function OwnerDashboard() {
                       <h2 className="font-bold text-gray-950">{category.name}</h2>
                       <p className="text-sm text-gray-500">{category.items.length} items</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => deleteCategory(category.id)}
-                      className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"
-                    >
-                      Delete category
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateCategory(category)}
+                        className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-900 hover:bg-gray-50"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteCategory(category.id)}
+                        className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
 
                   <div className="divide-y divide-gray-100">
@@ -530,6 +621,10 @@ export default function OwnerDashboard() {
                                   </label>
                                   <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
                                     <input type="checkbox" checked={Boolean(draft.is_special)} onChange={(event) => setEditDrafts((current) => ({ ...current, [item.id]: { ...draft, is_special: event.target.checked } }))} />
+                                    Special
+                                  </label>
+                                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                                    <input type="checkbox" checked={Boolean(draft.is_bestseller)} onChange={(event) => setEditDrafts((current) => ({ ...current, [item.id]: { ...draft, is_bestseller: event.target.checked } }))} />
                                     Bestseller
                                   </label>
                                 </div>

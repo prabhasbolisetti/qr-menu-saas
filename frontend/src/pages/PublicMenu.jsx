@@ -8,6 +8,7 @@ export default function PublicMenu() {
   const [menuData, setMenuData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [logoFailed, setLogoFailed] = useState(false);
   const [activeCategory, setActiveCategory] = useState(0);
   const categoryRefs = useRef([]);
 
@@ -17,8 +18,12 @@ export default function PublicMenu() {
     async function fetchMenu() {
       try {
         setError("");
+        setLoading(true);
         const response = await api.get(`/menu/${slug}`);
-        if (mounted) setMenuData(response.data);
+        if (mounted) {
+          setLogoFailed(false);
+          setMenuData(response.data);
+        }
       } catch (error) {
         console.error("Failed to load menu:", error);
         if (mounted) {
@@ -134,10 +139,12 @@ export default function PublicMenu() {
       <header className="sticky top-0 z-20 border-b border-gray-100 bg-white">
         <div className="mx-auto max-w-3xl px-4 py-4">
           <div className="flex items-center gap-3">
-            {menuData.restaurant.logo_url ? (
+            {menuData.restaurant.logo_url && !logoFailed ? (
               <img
                 src={menuData.restaurant.logo_url}
                 alt={menuData.restaurant.name}
+                referrerPolicy="no-referrer"
+                onError={() => setLogoFailed(true)}
                 className="h-14 w-14 rounded-lg border border-gray-100 object-cover"
               />
             ) : (
@@ -148,10 +155,27 @@ export default function PublicMenu() {
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-xl font-bold text-gray-950">{menuData.restaurant.name}</h1>
               <p className="mt-0.5 text-sm text-gray-500">{menuData.restaurant.city || "Menu"}</p>
+              <p
+                className={`mt-1 inline-flex rounded px-2 py-0.5 text-xs font-semibold ${
+                  menuData.restaurant.is_open === false
+                    ? "bg-red-50 text-red-700"
+                    : "bg-green-50 text-green-700"
+                }`}
+              >
+                {menuData.restaurant.is_open === false ? "Closed" : "Open now"}
+              </p>
             </div>
           </div>
         </div>
       </header>
+
+      {menuData.restaurant.is_open === false && (
+        <div className="border-b border-red-100 bg-red-50 px-4 py-3">
+          <p className="mx-auto max-w-3xl text-sm font-medium text-red-800">
+            This restaurant is currently closed. You can still browse the menu.
+          </p>
+        </div>
+      )}
 
       {menuData.menu.length > 0 && (
         <div className="sticky top-[89px] z-10 overflow-x-auto border-b border-gray-100 bg-white">

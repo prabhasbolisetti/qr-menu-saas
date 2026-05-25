@@ -38,7 +38,7 @@ npm install
 npm run dev
 ```
 
-Visit: `http://localhost:5173/menu/pizza-palace`
+Visit: `https://qr-menu-saas-ten.vercel.app/menu/pizza-palace`
 
 ---
 
@@ -131,7 +131,7 @@ npm run dev
 ```
 
 ### 2. Visit
-Open `http://localhost:5173/menu/pizza-palace`
+Open `https://qr-menu-saas-ten.vercel.app/menu/pizza-palace`
 
 ### 3. See Changes
 - Sticky header

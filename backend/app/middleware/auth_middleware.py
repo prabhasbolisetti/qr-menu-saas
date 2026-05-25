@@ -1,10 +1,11 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.services.supabase_service import supabase
+from app.services.supabase_service import auth_supabase, supabase
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
+VALID_ROLES = {"super", "owner"}
 
 
 def _metadata_value(user, key: str):
@@ -18,23 +19,76 @@ def _metadata_value(user, key: str):
     )
 
 
-def _profile_role(user_id: str):
+def _get_profile(user_id: str):
 
     try:
         response = (
             supabase.table("profiles")
-            .select("role")
+            .select("id,email,role,full_name")
             .eq("id", user_id)
             .single()
             .execute()
         )
 
-        if response.data:
-            return response.data.get("role")
+        return response.data
     except Exception:
         return None
 
-    return None
+
+def _sync_profile_from_metadata(user, role: str):
+
+    if role not in VALID_ROLES:
+        return None
+
+    payload = {
+        "id": user.id,
+        "email": getattr(user, "email", None),
+        "role": role,
+        "full_name": _metadata_value(user, "full_name")
+    }
+
+    try:
+        response = (
+            supabase.table("profiles")
+            .upsert(payload)
+            .execute()
+        )
+
+        return response.data[0] if response.data else payload
+    except Exception:
+        return payload
+
+
+def build_user_identity(user):
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token"
+        )
+
+    user_id = user.id
+    profile = _get_profile(user_id)
+    metadata_role = _metadata_value(user, "role")
+    role = (profile or {}).get("role") or metadata_role
+
+    if role not in VALID_ROLES:
+        role = None
+
+    if not profile and role:
+        profile = _sync_profile_from_metadata(user, role)
+
+    if not role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User role not configured"
+        )
+
+    return {
+        "user_id": user_id,
+        "email": getattr(user, "email", None),
+        "role": role
+    }
 
 
 def get_current_user(
@@ -48,35 +102,14 @@ def get_current_user(
         )
 
     try:
-        response = supabase.auth.get_user(credentials.credentials)
+        response = auth_supabase.auth.get_user(credentials.credentials)
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token"
         )
 
-    user = getattr(response, "user", None)
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token"
-        )
-
-    user_id = user.id
-    role = _metadata_value(user, "role") or _profile_role(user_id)
-
-    if not role:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User role not configured"
-        )
-
-    return {
-        "user_id": user_id,
-        "email": getattr(user, "email", None),
-        "role": role
-    }
+    return build_user_identity(getattr(response, "user", None))
 
 
 def require_role(required_role: str):

@@ -5,7 +5,9 @@ from app.config.settings import settings
 
 def build_public_menu_url(slug: str):
 
-    return f"{settings.FRONTEND_PUBLIC_BASE_URL.rstrip('/')}/menu/{slug}"
+    encoded_slug = quote(slug, safe="")
+
+    return f"{settings.FRONTEND_PUBLIC_BASE_URL.rstrip('/')}/menu/{encoded_slug}"
 
 
 def build_qr_response(restaurant):
