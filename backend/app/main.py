@@ -18,6 +18,11 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
+logging.getLogger(__name__).info(
+    "ENVIRONMENT VALUE: %s",
+    settings.ENVIRONMENT
+)
+
 app = FastAPI(
     title="QR Menu API",
     version="1.0.0",
@@ -61,9 +66,22 @@ app.include_router(super_admin.router)
 async def add_security_headers(request, call_next):
 
     response = await call_next(request)
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+
+    response.headers.setdefault(
+        "X-Content-Type-Options",
+        "nosniff"
+    )
+
+    response.headers.setdefault(
+        "X-Frame-Options",
+        "DENY"
+    )
+
+    response.headers.setdefault(
+        "Referrer-Policy",
+        "strict-origin-when-cross-origin"
+    )
+
     response.headers.setdefault(
         "Permissions-Policy",
         "camera=(), microphone=(), geolocation=()"
@@ -90,6 +108,7 @@ def root():
 
 @app.get("/health")
 def health():
+
     return {
         "status": "healthy",
         "service": "qr-menu-api",
