@@ -3,13 +3,16 @@ from app.services.supabase_service import supabase
 
 def get_restaurant_by_slug(slug: str):
 
-    response = (
-        supabase.table("restaurants")
-        .select("*")
-        .eq("slug", slug)
-        .single()
-        .execute()
-    )
+    try:
+        response = (
+            supabase.table("restaurants")
+            .select("*")
+            .eq("slug", slug)
+            .single()
+            .execute()
+        )
+    except Exception:
+        return None
 
     return response.data
 
@@ -41,6 +44,19 @@ def get_available_items(restaurant_id: str):
     return response.data
 
 
+def get_all_items(restaurant_id: str):
+
+    response = (
+        supabase.table("menu_items")
+        .select("*")
+        .eq("restaurant_id", restaurant_id)
+        .order("display_order")
+        .execute()
+    )
+
+    return response.data
+
+
 def build_menu_response(
     restaurant,
     categories,
@@ -64,6 +80,7 @@ def build_menu_response(
                     "price": item["price"],
                     "mrp_price": item["mrp_price"],
                     "image_url": item["image_url"],
+                    "is_available": item.get("is_available", True),
                     "is_veg": item["is_veg"],
                     "is_special": item["is_special"]
                 })

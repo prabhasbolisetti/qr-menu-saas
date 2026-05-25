@@ -19,6 +19,46 @@ def create_restaurant(data):
     return response.data[0]
 
 
+def create_owner_account(data):
+
+    response = supabase.auth.admin.create_user({
+        "email": data.email,
+        "password": data.password,
+        "email_confirm": True,
+        "user_metadata": {
+            "role": "owner",
+            "full_name": data.full_name
+        },
+        "app_metadata": {
+            "role": "owner"
+        }
+    })
+
+    user = response.user
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "role": "owner"
+    }
+
+
+def get_restaurant_by_id(restaurant_id: str):
+
+    try:
+        response = (
+            supabase.table("restaurants")
+            .select("*")
+            .eq("id", restaurant_id)
+            .single()
+            .execute()
+        )
+    except Exception:
+        return None
+
+    return response.data
+
+
 
 
 def create_category(data):
@@ -36,6 +76,46 @@ def create_category(data):
 
     return response.data[0]
 
+
+def get_categories(restaurant_id: str):
+
+    response = (
+        supabase.table("categories")
+        .select("*")
+        .eq("restaurant_id", restaurant_id)
+        .order("display_order")
+        .execute()
+    )
+
+    return response.data
+
+
+def update_category(category_id: str, data):
+
+    update_data = data.dict(
+        exclude_unset=True
+    )
+
+    response = (
+        supabase.table("categories")
+        .update(update_data)
+        .eq("id", category_id)
+        .execute()
+    )
+
+    return response.data[0]
+
+
+def delete_category(category_id: str):
+
+    response = (
+        supabase.table("categories")
+        .delete()
+        .eq("id", category_id)
+        .execute()
+    )
+
+    return response.data
 
 
 def create_menu_item(data):
@@ -86,6 +166,17 @@ def delete_menu_item(item_id: str):
         supabase.table("menu_items")
         .delete()
         .eq("id", item_id)
+        .execute()
+    )
+
+    return response.data
+
+def get_all_restaurants():
+
+    response = (
+        supabase.table("restaurants")
+        .select("*")
+        .order("created_at")
         .execute()
     )
 

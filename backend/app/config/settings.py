@@ -30,5 +30,10 @@ class Settings:
         "CLOUDINARY_API_SECRET"
     )
 
+    FRONTEND_PUBLIC_BASE_URL = os.getenv(
+        "FRONTEND_PUBLIC_BASE_URL",
+        "http://127.0.0.1:5173"
+    )
+
 
 settings = Settings()

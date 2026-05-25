@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 class CreateMenuItemSchema(BaseModel):
 
-    restaurant_id: str
+    restaurant_id: str | None = None
 
     category_id: str
 

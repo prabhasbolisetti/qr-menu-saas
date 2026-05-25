@@ -6,11 +6,26 @@ from app.services.menu_service import (
     get_available_items,
     build_menu_response
 )
+from app.services.qr_service import build_qr_response
 
 router = APIRouter(
     prefix="/menu",
     tags=["Public Menu"]
 )
+
+
+@router.get("/{slug}/qr")
+def get_menu_qr(slug: str):
+
+    restaurant = get_restaurant_by_slug(slug)
+
+    if not restaurant:
+        raise HTTPException(
+            status_code=404,
+            detail="Restaurant not found"
+        )
+
+    return build_qr_response(restaurant)
 
 
 @router.get("/{slug}")

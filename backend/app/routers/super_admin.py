@@ -6,16 +6,34 @@ from fastapi import (
     HTTPException
 )
 
-from app.middleware.auth_middleware import require_role
+from app.middleware.auth_middleware import (
+    require_role
+)
 
-from app.services.cloudinary_service import upload_image
+from app.services.cloudinary_service import (
+    upload_image
+)
+
+from app.services.qr_service import (
+    build_qr_response
+)
+
+from app.services.menu_service import (
+    get_all_items
+)
 
 from app.services.admin_service import (
+    create_owner_account,
     create_restaurant,
     create_category,
+    update_category,
+    delete_category,
+    get_categories,
     create_menu_item,
     update_menu_item,
-    delete_menu_item
+    delete_menu_item,
+    get_all_restaurants,
+    get_restaurant_by_id
 )
 
 from app.schemas.restaurant import (
@@ -23,12 +41,17 @@ from app.schemas.restaurant import (
 )
 
 from app.schemas.category import (
-    CreateCategorySchema
+    CreateCategorySchema,
+    UpdateCategorySchema
 )
 
 from app.schemas.menu_item import (
     CreateMenuItemSchema,
     UpdateMenuItemSchema
+)
+
+from app.schemas.user import (
+    CreateOwnerSchema
 )
 
 router = APIRouter(
@@ -41,29 +64,98 @@ router = APIRouter(
 def super_dashboard(
     current_user=Depends(require_role("super"))
 ):
+
     return {
         "message": "Super admin protected",
         "user": current_user
     }
 
 
-@router.post("/upload/image")
-def upload_menu_image(
-    file: UploadFile = File(...),
+@router.get("/restaurants")
+def get_restaurants(
     current_user=Depends(require_role("super"))
 ):
 
-    if not file.content_type.startswith("image/"):
+    restaurants = get_all_restaurants()
+
+    return restaurants
+
+
+@router.get("/restaurants/{restaurant_id}")
+def get_restaurant(
+    restaurant_id: str,
+    current_user=Depends(require_role("super"))
+):
+
+    restaurant = get_restaurant_by_id(restaurant_id)
+
+    if not restaurant:
         raise HTTPException(
-            status_code=400,
-            detail="Only image files allowed"
+            status_code=404,
+            detail="Restaurant not found"
         )
 
-    image_url = upload_image(file.file)
+    return restaurant
 
-    return {
-        "image_url": image_url
-    }
+
+@router.get("/restaurants/{restaurant_id}/qr")
+def get_restaurant_qr(
+    restaurant_id: str,
+    current_user=Depends(require_role("super"))
+):
+
+    restaurant = get_restaurant_by_id(restaurant_id)
+
+    if not restaurant:
+        raise HTTPException(
+            status_code=404,
+            detail="Restaurant not found"
+        )
+
+    return build_qr_response(restaurant)
+
+
+@router.get("/restaurants/{restaurant_id}/categories")
+def get_restaurant_categories(
+    restaurant_id: str,
+    current_user=Depends(require_role("super"))
+):
+
+    restaurant = get_restaurant_by_id(restaurant_id)
+
+    if not restaurant:
+        raise HTTPException(
+            status_code=404,
+            detail="Restaurant not found"
+        )
+
+    return get_categories(restaurant_id)
+
+
+@router.get("/restaurants/{restaurant_id}/items")
+def get_restaurant_items(
+    restaurant_id: str,
+    current_user=Depends(require_role("super"))
+):
+
+    restaurant = get_restaurant_by_id(restaurant_id)
+
+    if not restaurant:
+        raise HTTPException(
+            status_code=404,
+            detail="Restaurant not found"
+        )
+
+    return get_all_items(restaurant_id)
+
+
+@router.post("/owners")
+def create_owner(
+    data: CreateOwnerSchema,
+    current_user=Depends(require_role("super"))
+):
+
+    return create_owner_account(data)
 
 
 @router.post("/restaurants")
@@ -86,6 +178,32 @@ def create_new_category(
     category = create_category(data)
 
     return category
+
+
+@router.put("/categories/{category_id}")
+def update_existing_category(
+    category_id: str,
+    data: UpdateCategorySchema,
+    current_user=Depends(require_role("super"))
+):
+
+    return update_category(
+        category_id,
+        data
+    )
+
+
+@router.delete("/categories/{category_id}")
+def delete_existing_category(
+    category_id: str,
+    current_user=Depends(require_role("super"))
+):
+
+    delete_category(category_id)
+
+    return {
+        "message": "Category deleted successfully"
+    }
 
 
 @router.post("/items")
@@ -113,6 +231,7 @@ def update_item(
 
     return item
 
+
 @router.delete("/items/{item_id}")
 def delete_item(
     item_id: str,
@@ -123,4 +242,24 @@ def delete_item(
 
     return {
         "message": "Item deleted successfully"
+    }
+
+
+@router.post("/upload/image")
+def upload_menu_image(
+    file: UploadFile = File(...),
+    current_user=Depends(require_role("super"))
+):
+
+    if not file.content_type.startswith("image/"):
+
+        raise HTTPException(
+            status_code=400,
+            detail="Only image files allowed"
+        )
+
+    image_url = upload_image(file.file)
+
+    return {
+        "image_url": image_url
     }
