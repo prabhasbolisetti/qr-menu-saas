@@ -1,11 +1,18 @@
 import axios from "axios";
-import { clearSession, getAccessToken } from "../utils/auth";
+
+import {
+  clearSession,
+  getAccessToken
+} from "../utils/auth";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000",
+  baseURL:
+    import.meta.env.VITE_API_BASE_URL ||
+    "https://qr-menu-backend-feot.onrender.com",
 });
 
 api.interceptors.request.use((config) => {
+
   const token = getAccessToken();
 
   if (token) {
@@ -16,8 +23,11 @@ api.interceptors.request.use((config) => {
 });
 
 api.interceptors.response.use(
+
   (response) => response,
+
   (error) => {
+
     if (error?.response?.status === 401) {
       clearSession();
     }
