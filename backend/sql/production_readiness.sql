@@ -98,8 +98,14 @@ for each row execute function public.sync_profile_from_auth_user();
 create index if not exists categories_restaurant_id_idx
 on public.categories (restaurant_id);
 
+create index if not exists categories_restaurant_display_order_idx
+on public.categories (restaurant_id, display_order);
+
 create index if not exists menu_items_restaurant_id_idx
 on public.menu_items (restaurant_id);
+
+create index if not exists menu_items_restaurant_available_display_order_idx
+on public.menu_items (restaurant_id, is_available, display_order);
 
 create index if not exists menu_items_category_id_idx
 on public.menu_items (category_id);

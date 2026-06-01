@@ -1,4 +1,5 @@
 from app.services.supabase_service import supabase
+from app.services.menu_service import clear_public_menu_cache
 import logging
 
 logger = logging.getLogger(__name__)
@@ -222,7 +223,9 @@ def create_owner_category(data):
             .execute()
         )
         logger.info(f"Owner category created: {response.data}")
-        return _single_response_data(response, "owner category after insert")
+        category = _single_response_data(response, "owner category after insert")
+        clear_public_menu_cache(category["restaurant_id"])
+        return category
     except Exception as e:
         logger.error(f"Failed to create owner category: {str(e)}", exc_info=True)
         raise
@@ -251,7 +254,9 @@ def update_owner_restaurant_open_state(
         )
         raise
 
-    return _single_response_data(response, "owner restaurant")
+    restaurant = _single_response_data(response, "owner restaurant")
+    clear_public_menu_cache(restaurant_id)
+    return restaurant
 
 
 def update_owner_category(
@@ -270,7 +275,9 @@ def update_owner_category(
         .execute()
     )
 
-    return _single_response_data(response, "owner category after update")
+    category = _single_response_data(response, "owner category after update")
+    clear_public_menu_cache(restaurant_id)
+    return category
 
 
 def delete_owner_category(
@@ -285,6 +292,8 @@ def delete_owner_category(
         .eq("id", category_id)
         .execute()
     )
+
+    clear_public_menu_cache(restaurant_id)
 
     return response.data
 
@@ -309,7 +318,9 @@ def create_owner_item(data):
         logger.info(f"Creating owner menu item with payload: {payload}")
         response = _insert_menu_item_with_schema_fallback(payload)
         logger.info(f"Owner menu item created: {response.data}")
-        return _single_response_data(response, "owner menu item after insert")
+        item = _single_response_data(response, "owner menu item after insert")
+        clear_public_menu_cache(item["restaurant_id"])
+        return item
     except Exception as e:
         logger.error(f"Failed to create owner menu item: {str(e)}", exc_info=True)
         raise
@@ -329,7 +340,9 @@ def update_owner_item(
         update_data
     )
 
-    return _single_response_data(response, "owner menu item after update")
+    item = _single_response_data(response, "owner menu item after update")
+    clear_public_menu_cache(restaurant_id)
+    return item
 
 
 def delete_owner_item(
@@ -344,6 +357,8 @@ def delete_owner_item(
         .eq("id", item_id)
         .execute()
     )
+
+    clear_public_menu_cache(restaurant_id)
 
     return response.data
 
@@ -364,7 +379,9 @@ def toggle_item_availability(
         .execute()
     )
 
-    return _single_response_data(response, "owner menu item after toggle")
+    item = _single_response_data(response, "owner menu item after toggle")
+    clear_public_menu_cache(restaurant_id)
+    return item
 
 
 def update_item_price(
@@ -383,4 +400,6 @@ def update_item_price(
         .execute()
     )
 
-    return _single_response_data(response, "owner menu item after price update")
+    item = _single_response_data(response, "owner menu item after price update")
+    clear_public_menu_cache(restaurant_id)
+    return item

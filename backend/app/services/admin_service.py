@@ -2,6 +2,7 @@ from types import SimpleNamespace
 import logging
 
 from app.services.supabase_service import supabase
+from app.services.menu_service import clear_public_menu_cache
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +277,9 @@ def update_restaurant_open_state(
         )
         raise
 
-    return _single_response_data(response, "restaurant")
+    restaurant = _single_response_data(response, "restaurant")
+    clear_public_menu_cache(restaurant_id)
+    return restaurant
 
 
 
@@ -297,7 +300,9 @@ def create_category(data):
             .execute()
         )
         logger.info(f"Category created: {response.data}")
-        return _single_response_data(response, "category after insert")
+        category = _single_response_data(response, "category after insert")
+        clear_public_menu_cache(category["restaurant_id"])
+        return category
     except Exception as e:
         logger.error(f"Failed to create category: {str(e)}", exc_info=True)
         raise
@@ -383,7 +388,9 @@ def update_category(category_id: str, data):
         .execute()
     )
 
-    return _single_response_data(response, "category after update")
+    category = _single_response_data(response, "category after update")
+    clear_public_menu_cache(category.get("restaurant_id"))
+    return category
 
 
 def delete_category(category_id: str):
@@ -394,6 +401,9 @@ def delete_category(category_id: str):
         .eq("id", category_id)
         .execute()
     )
+
+    for category in response.data or []:
+        clear_public_menu_cache(category.get("restaurant_id"))
 
     return response.data
 
@@ -418,7 +428,9 @@ def create_menu_item(data):
         logger.info(f"Creating menu item with payload: {payload}")
         response = _insert_menu_item_with_schema_fallback(payload)
         logger.info(f"Menu item created: {response.data}")
-        return _single_response_data(response, "menu item after insert")
+        item = _single_response_data(response, "menu item after insert")
+        clear_public_menu_cache(item["restaurant_id"])
+        return item
     except Exception as e:
         logger.error(f"Failed to create menu item: {str(e)}", exc_info=True)
         raise
@@ -436,7 +448,9 @@ def update_menu_item(
         update_data
     )
 
-    return _single_response_data(response, "menu item after update")
+    item = _single_response_data(response, "menu item after update")
+    clear_public_menu_cache(item.get("restaurant_id"))
+    return item
 
 
 def delete_menu_item(item_id: str):
@@ -447,6 +461,9 @@ def delete_menu_item(item_id: str):
         .eq("id", item_id)
         .execute()
     )
+
+    for item in response.data or []:
+        clear_public_menu_cache(item.get("restaurant_id"))
 
     return response.data
 

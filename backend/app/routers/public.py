@@ -1,12 +1,15 @@
-from fastapi import APIRouter, HTTPException
+import logging
+
+from fastapi import APIRouter, HTTPException, Response
 
 from app.services.menu_service import (
     get_restaurant_by_slug,
-    get_categories,
-    get_available_items,
-    build_menu_response
+    get_public_menu_by_slug,
+    RestaurantLookupError
 )
 from app.services.qr_service import build_qr_response
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/menu",
@@ -17,7 +20,19 @@ router = APIRouter(
 @router.get("/{slug}/qr")
 def get_menu_qr(slug: str):
 
-    restaurant = get_restaurant_by_slug(slug)
+    try:
+        restaurant = get_restaurant_by_slug(slug)
+    except RestaurantLookupError as exc:
+        logger.error(
+            "Failed to load QR restaurant slug=%s error=%s",
+            slug,
+            exc,
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Menu service temporarily unavailable"
+        ) from exc
 
     if not restaurant:
         raise HTTPException(
@@ -29,30 +44,36 @@ def get_menu_qr(slug: str):
 
 
 @router.get("/{slug}")
-def get_menu(slug: str):
+def get_menu(slug: str, response: Response):
 
-    restaurant = get_restaurant_by_slug(slug)
+    try:
+        menu_response = get_public_menu_by_slug(slug)
+    except RestaurantLookupError as exc:
+        logger.error(
+            "Failed to load public menu restaurant slug=%s error=%s",
+            slug,
+            exc,
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Menu service temporarily unavailable"
+        ) from exc
 
-    if not restaurant:
+    if not menu_response:
         raise HTTPException(
             status_code=404,
             detail="Restaurant not found"
         )
 
-    if not restaurant["is_active"]:
+    if menu_response.get("inactive"):
         raise HTTPException(
             status_code=403,
             detail="Restaurant inactive"
         )
 
-    categories = get_categories(restaurant["id"])
-
-    items = get_available_items(restaurant["id"])
-
-    response = build_menu_response(
-        restaurant,
-        categories,
-        items
+    response.headers["Cache-Control"] = (
+        "public, max-age=30, stale-while-revalidate=120"
     )
 
-    return response
+    return menu_response
