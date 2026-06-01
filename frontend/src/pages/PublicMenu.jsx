@@ -3,6 +3,39 @@ import { useParams } from "react-router-dom";
 import api from "../api/axios";
 import CategorySection from "../components/CategorySection";
 
+const MENU_FETCH_RETRIES = 2;
+const MENU_RETRY_DELAY_MS = 900;
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function shouldRetryMenuFetch(error, attempt) {
+  if (attempt >= MENU_FETCH_RETRIES) return false;
+
+  const status = error?.response?.status;
+
+  return (
+    !status ||
+    status === 404 ||
+    status === 408 ||
+    status === 429 ||
+    status >= 500
+  );
+}
+
+function getMenuErrorMessage(error) {
+  if (error?.response?.status === 503) {
+    return "Menu service is waking up. Please try again.";
+  }
+
+  if (error?.userMessage) {
+    return error.userMessage;
+  }
+
+  return error?.response?.data?.detail || "Menu not found";
+}
+
 export default function PublicMenu() {
   const { slug } = useParams();
   const [menuData, setMenuData] = useState(null);
@@ -16,22 +49,34 @@ export default function PublicMenu() {
     let mounted = true;
 
     async function fetchMenu() {
-      try {
-        setError("");
-        setLoading(true);
-        const response = await api.get(`/menu/${slug}`);
-        if (mounted) {
-          setLogoFailed(false);
-          setMenuData(response.data);
+      setError("");
+      setLoading(true);
+
+      for (let attempt = 0; attempt <= MENU_FETCH_RETRIES; attempt += 1) {
+        try {
+          const response = await api.get(`/menu/${slug}`);
+          if (mounted) {
+            setLogoFailed(false);
+            setMenuData(response.data);
+            setLoading(false);
+          }
+          return;
+        } catch (error) {
+          console.error("Failed to load menu:", error);
+
+          if (shouldRetryMenuFetch(error, attempt)) {
+            await wait(MENU_RETRY_DELAY_MS * (attempt + 1));
+            if (!mounted) return;
+            continue;
+          }
+
+          if (mounted) {
+            setError(getMenuErrorMessage(error));
+            setMenuData(null);
+            setLoading(false);
+          }
+          return;
         }
-      } catch (error) {
-        console.error("Failed to load menu:", error);
-        if (mounted) {
-          setError(error?.response?.data?.detail || "Menu not found");
-          setMenuData(null);
-        }
-      } finally {
-        if (mounted) setLoading(false);
       }
     }
 
