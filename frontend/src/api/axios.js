@@ -5,7 +5,7 @@ import {
   getAccessToken
 } from "../utils/auth";
 
-const DEFAULT_API_BASE_URL = "https://qr-menu-backend-feot.onrender.com";
+export const DEFAULT_API_BASE_URL = "https://qr-menu-backend-feot.onrender.com";
 
 function normalizeBaseUrl(url) {
   return (url || DEFAULT_API_BASE_URL).replace(/\/+$/, "");
@@ -13,7 +13,7 @@ function normalizeBaseUrl(url) {
 
 const api = axios.create({
   baseURL: normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL),
-  timeout: 15000,
+  timeout: 30000,
 });
 
 api.interceptors.request.use((config) => {

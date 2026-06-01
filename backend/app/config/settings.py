@@ -58,6 +58,46 @@ class Settings:
             "*"
         )
 
+        self.BACKEND_CORS_ORIGIN_REGEX = os.getenv(
+            "BACKEND_CORS_ORIGIN_REGEX",
+            r"https://.*\.vercel\.app"
+        )
+
+        self.SUPABASE_POSTGREST_TIMEOUT_SECONDS = float(
+            os.getenv(
+                "SUPABASE_POSTGREST_TIMEOUT_SECONDS",
+                "2.5"
+            )
+        )
+
+        self.PUBLIC_MENU_CACHE_TTL_SECONDS = int(
+            os.getenv(
+                "PUBLIC_MENU_CACHE_TTL_SECONDS",
+                "120"
+            )
+        )
+
+        self.PUBLIC_MENU_STALE_SECONDS = int(
+            os.getenv(
+                "PUBLIC_MENU_STALE_SECONDS",
+                "900"
+            )
+        )
+
+        self.PUBLIC_MENU_CACHE_MAX_SIZE = int(
+            os.getenv(
+                "PUBLIC_MENU_CACHE_MAX_SIZE",
+                "512"
+            )
+        )
+
+        self.PUBLIC_MENU_SINGLEFLIGHT_WAIT_SECONDS = float(
+            os.getenv(
+                "PUBLIC_MENU_SINGLEFLIGHT_WAIT_SECONDS",
+                "2.2"
+            )
+        )
+
         self.MAX_IMAGE_UPLOAD_MB = int(
             os.getenv(
                 "MAX_IMAGE_UPLOAD_MB",

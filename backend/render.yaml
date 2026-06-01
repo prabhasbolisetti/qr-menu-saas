@@ -29,5 +29,17 @@ services:
         sync: false
       - key: BACKEND_CORS_ORIGINS
         sync: false
+      - key: BACKEND_CORS_ORIGIN_REGEX
+        value: "https://.*\\.vercel\\.app"
       - key: BACKEND_ALLOWED_HOSTS
         sync: false
+      - key: SUPABASE_POSTGREST_TIMEOUT_SECONDS
+        value: 2.5
+      - key: PUBLIC_MENU_CACHE_TTL_SECONDS
+        value: 120
+      - key: PUBLIC_MENU_STALE_SECONDS
+        value: 900
+      - key: PUBLIC_MENU_CACHE_MAX_SIZE
+        value: 512
+      - key: PUBLIC_MENU_SINGLEFLIGHT_WAIT_SECONDS
+        value: 2.2

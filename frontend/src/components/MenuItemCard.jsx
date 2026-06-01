@@ -1,16 +1,18 @@
-import { useState } from "react";
+import { memo, useState } from "react";
+
+const inrFormatter = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 0,
+});
 
 function formatPrice(amount) {
   if (amount == null) return "";
 
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(amount);
+  return inrFormatter.format(amount);
 }
 
-export default function MenuItemCard({ item }) {
+function MenuItemCard({ item }) {
   const [imageFailed, setImageFailed] = useState(false);
   const hasImage = Boolean(item.image_url) && !imageFailed;
   const isUnavailable = item.is_available === false;
@@ -104,3 +106,5 @@ export default function MenuItemCard({ item }) {
     </article>
   );
 }
+
+export default memo(MenuItemCard);

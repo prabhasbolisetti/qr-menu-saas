@@ -1,6 +1,7 @@
+import { memo } from "react";
 import MenuItemCard from "./MenuItemCard";
 
-export default function CategorySection({ category }) {
+function CategorySection({ category }) {
   const items = category.items || [];
 
   return (
@@ -32,3 +33,5 @@ export default function CategorySection({ category }) {
     </div>
   );
 }
+
+export default memo(CategorySection);

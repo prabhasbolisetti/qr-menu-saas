@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
-import api from "../api/axios";
+import axios from "axios";
+import api, { DEFAULT_API_BASE_URL } from "../api/axios";
 import CategorySection from "../components/CategorySection";
 
 const MENU_FETCH_RETRIES = 2;
@@ -17,7 +18,6 @@ function shouldRetryMenuFetch(error, attempt) {
 
   return (
     !status ||
-    status === 404 ||
     status === 408 ||
     status === 429 ||
     status >= 500
@@ -34,6 +34,25 @@ function getMenuErrorMessage(error) {
   }
 
   return error?.response?.data?.detail || "Menu not found";
+}
+
+async function fetchPublicMenu(slug) {
+  try {
+    return await api.get(`/menu/${slug}`);
+  } catch (error) {
+    const primaryBaseUrl = api.defaults.baseURL?.replace(/\/+$/, "");
+
+    if (!error.response && primaryBaseUrl !== DEFAULT_API_BASE_URL) {
+      return axios.get(
+        `${DEFAULT_API_BASE_URL}/menu/${encodeURIComponent(slug)}`,
+        {
+          timeout: 30000,
+        }
+      );
+    }
+
+    throw error;
+  }
 }
 
 export default function PublicMenu() {
@@ -54,7 +73,7 @@ export default function PublicMenu() {
 
       for (let attempt = 0; attempt <= MENU_FETCH_RETRIES; attempt += 1) {
         try {
-          const response = await api.get(`/menu/${slug}`);
+          const response = await fetchPublicMenu(slug);
           if (mounted) {
             setLogoFailed(false);
             setMenuData(response.data);
