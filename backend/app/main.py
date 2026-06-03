@@ -105,6 +105,14 @@ if settings.allowed_hosts_missing_in_production:
         "are configured."
     )
 
+if settings.rate_limit_storage_missing_in_production:
+    logger.critical(
+        "HIGH-SEVERITY CONFIG WARNING: RATE_LIMIT_STORAGE_URL is not configured "
+        "in production. API startup will continue with in-memory rate limits, "
+        "which are suitable only for a single starter instance. Configure Redis "
+        "before scaling or handling meaningful production traffic."
+    )
+
 if allowed_hosts and "*" not in allowed_hosts:
     app.add_middleware(
         TrustedHostMiddleware,

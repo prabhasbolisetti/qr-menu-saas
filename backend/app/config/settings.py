@@ -281,6 +281,11 @@ class Settings:
         return self.is_production and not self.allowed_hosts
 
     @property
+    def rate_limit_storage_missing_in_production(self):
+
+        return self.is_production and not self.RATE_LIMIT_STORAGE_URL
+
+    @property
     def max_image_upload_bytes(self):
 
         return self.MAX_IMAGE_UPLOAD_MB * 1024 * 1024
@@ -326,11 +331,6 @@ class Settings:
             if "*" in self.allowed_hosts:
                 raise RuntimeError(
                     "BACKEND_ALLOWED_HOSTS cannot contain '*' in production"
-                )
-
-            if not self.RATE_LIMIT_STORAGE_URL:
-                raise RuntimeError(
-                    "RATE_LIMIT_STORAGE_URL must be configured in production"
                 )
 
 

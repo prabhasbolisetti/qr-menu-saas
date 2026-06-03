@@ -125,10 +125,6 @@ class RateLimiter:
             self._store = RedisRateLimitStore(
                 settings.RATE_LIMIT_STORAGE_URL
             )
-        elif settings.is_production:
-            raise RuntimeError(
-                "RATE_LIMIT_STORAGE_URL must be configured in production"
-            )
         else:
             self._store = InMemoryRateLimitStore()
 

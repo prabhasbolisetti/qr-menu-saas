@@ -32,6 +32,7 @@ services:
       # Optional for custom API domains. Render's default onrender.com host is automatic.
       - key: BACKEND_ALLOWED_HOSTS
         sync: false
+      # Recommended before scaling. Missing value falls back to in-memory limits.
       - key: RATE_LIMIT_STORAGE_URL
         sync: false
       - key: SENTRY_DSN

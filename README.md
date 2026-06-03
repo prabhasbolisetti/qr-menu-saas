@@ -100,7 +100,9 @@ On Render, `BACKEND_ALLOWED_HOSTS` can be left blank for the default
 `RENDER_EXTERNAL_HOSTNAME` automatically. If you attach a custom API domain, set
 `BACKEND_ALLOWED_HOSTS` to that backend host, for example `api.yourdomain.com`;
 the default Render hostname remains trusted automatically.
-Set `RATE_LIMIT_STORAGE_URL` to a Redis URL in production.
+Set `RATE_LIMIT_STORAGE_URL` to a Redis URL before scaling beyond a single
+starter instance or accepting meaningful production traffic. If it is missing,
+the API still boots with in-memory rate limits and logs a high-severity warning.
 Set `SENTRY_DSN` to enable production error tracking and request tracing.
 
 ## Useful commands

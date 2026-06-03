@@ -71,6 +71,11 @@ Do not set `BACKEND_CORS_ORIGIN_REGEX` in production. If it is present, the
 backend logs a warning and ignores it because production CORS must use exact
 frontend origins. Do not use `*`; wildcard origins are ignored in production.
 
+`RATE_LIMIT_STORAGE_URL` is recommended before scaling beyond one instance or
+accepting meaningful production traffic. If it is missing, the API still boots
+with in-memory rate limits and logs a high-severity warning so starter Render
+deploys can pass health checks.
+
 ## Rollback
 
 1. Pause writes by disabling dashboard access or putting the backend in maintenance mode.
