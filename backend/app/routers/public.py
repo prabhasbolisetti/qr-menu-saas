@@ -1,7 +1,8 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
+from app.middleware.rate_limit import check_public_menu_rate_limit
 from app.services.menu_service import (
     get_restaurant_by_slug,
     get_public_menu_metadata_by_slug,
@@ -14,7 +15,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/menu",
-    tags=["Public Menu"]
+    tags=["Public Menu"],
+    dependencies=[Depends(check_public_menu_rate_limit)]
 )
 
 

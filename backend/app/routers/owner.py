@@ -2,6 +2,10 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 import logging
 
 from app.middleware.auth_middleware import require_role
+from app.middleware.rate_limit import (
+    check_owner_mutation_rate_limit,
+    check_upload_rate_limit
+)
 
 logger = logging.getLogger(__name__)
 
@@ -9,12 +13,6 @@ logger = logging.getLogger(__name__)
 def _database_error_detail(operation: str, exc: Exception):
 
     error_text = str(exc)
-
-    if "is_open" in error_text and "restaurants" in error_text:
-        return (
-            f"{operation} failed: database migration required "
-            "for restaurants.is_open"
-        )
 
     return f"{operation} failed"
 
@@ -41,8 +39,12 @@ from app.services.owner_service import (
     get_owner_categories,
     get_owner_category,
     get_owner_item,
+    get_owner_item_including_deleted,
     get_owner_items,
     get_owner_restaurant,
+    get_owner_category_including_deleted,
+    restore_owner_category,
+    restore_owner_item,
     toggle_item_availability,
     update_item_price,
     update_owner_category,
@@ -130,12 +132,14 @@ def update_restaurant_open_state(
     current_user=Depends(require_role("owner"))
 ):
 
+    check_owner_mutation_rate_limit(current_user)
     restaurant = _owner_restaurant(current_user)
 
     try:
         return update_owner_restaurant_open_state(
             restaurant["id"],
-            data.is_open
+            data.is_open,
+            actor=current_user
         )
     except Exception as e:
         logger.error(
@@ -168,21 +172,24 @@ def create_category(
     current_user=Depends(require_role("owner"))
 ):
 
+    check_owner_mutation_rate_limit(current_user)
+
     try:
         restaurant = _owner_restaurant(current_user)
         payload = data.model_dump()
         payload["restaurant_id"] = restaurant["id"]
-        logger.info("Owner creating category payload=%s", payload)
-        category = create_owner_category(payload)
-        logger.info(f"Category created: {category}")
+        category = create_owner_category(
+            payload,
+            actor=current_user
+        )
         return category
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to create owner category: {str(e)}", exc_info=True)
+        logger.exception("Failed to create owner category")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create category: {str(e)}"
+            detail="Failed to create category"
         ) from e
 
 
@@ -193,6 +200,7 @@ def update_category(
     current_user=Depends(require_role("owner"))
 ):
 
+    check_owner_mutation_rate_limit(current_user)
     restaurant = _owner_restaurant(current_user)
     _assert_category_belongs_to_owner(
         restaurant["id"],
@@ -202,7 +210,8 @@ def update_category(
     return update_owner_category(
         restaurant["id"],
         category_id,
-        data
+        data,
+        actor=current_user
     )
 
 
@@ -212,6 +221,7 @@ def delete_category(
     current_user=Depends(require_role("owner"))
 ):
 
+    check_owner_mutation_rate_limit(current_user)
     restaurant = _owner_restaurant(current_user)
     _assert_category_belongs_to_owner(
         restaurant["id"],
@@ -220,12 +230,39 @@ def delete_category(
 
     delete_owner_category(
         restaurant["id"],
-        category_id
+        category_id,
+        actor=current_user
     )
 
     return {
         "message": "Category deleted successfully"
     }
+
+
+@router.post("/categories/{category_id}/restore")
+def restore_category(
+    category_id: str,
+    current_user=Depends(require_role("owner"))
+):
+
+    check_owner_mutation_rate_limit(current_user)
+    restaurant = _owner_restaurant(current_user)
+    category = get_owner_category_including_deleted(
+        restaurant["id"],
+        category_id
+    )
+
+    if not category:
+        raise HTTPException(
+            status_code=404,
+            detail="Category not found"
+        )
+
+    return restore_owner_category(
+        restaurant["id"],
+        category_id,
+        actor=current_user
+    )
 
 
 @router.get("/items")
@@ -246,6 +283,8 @@ def create_item(
     current_user=Depends(require_role("owner"))
 ):
 
+    check_owner_mutation_rate_limit(current_user)
+
     try:
         restaurant = _owner_restaurant(current_user)
         _assert_category_belongs_to_owner(
@@ -254,17 +293,18 @@ def create_item(
         )
         payload = data.model_dump()
         payload["restaurant_id"] = restaurant["id"]
-        logger.info("Owner creating menu item payload=%s", payload)
-        item = create_owner_item(payload)
-        logger.info(f"Menu item created: {item}")
+        item = create_owner_item(
+            payload,
+            actor=current_user
+        )
         return item
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to create owner menu item: {str(e)}", exc_info=True)
+        logger.exception("Failed to create owner menu item")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create menu item: {str(e)}"
+            detail="Failed to create menu item"
         ) from e
 
 
@@ -275,6 +315,7 @@ def update_item(
     current_user=Depends(require_role("owner"))
 ):
 
+    check_owner_mutation_rate_limit(current_user)
     restaurant = _owner_restaurant(current_user)
     _assert_item_belongs_to_owner(
         restaurant["id"],
@@ -290,7 +331,8 @@ def update_item(
     return update_owner_item(
         restaurant["id"],
         item_id,
-        data
+        data,
+        actor=current_user
     )
 
 
@@ -300,6 +342,7 @@ def delete_item(
     current_user=Depends(require_role("owner"))
 ):
 
+    check_owner_mutation_rate_limit(current_user)
     restaurant = _owner_restaurant(current_user)
     _assert_item_belongs_to_owner(
         restaurant["id"],
@@ -308,12 +351,50 @@ def delete_item(
 
     delete_owner_item(
         restaurant["id"],
-        item_id
+        item_id,
+        actor=current_user
     )
 
     return {
         "message": "Item deleted successfully"
     }
+
+
+@router.post("/items/{item_id}/restore")
+def restore_item(
+    item_id: str,
+    current_user=Depends(require_role("owner"))
+):
+
+    check_owner_mutation_rate_limit(current_user)
+    restaurant = _owner_restaurant(current_user)
+    item = get_owner_item_including_deleted(
+        restaurant["id"],
+        item_id
+    )
+
+    if not item:
+        raise HTTPException(
+            status_code=404,
+            detail="Item not found"
+        )
+
+    category = get_owner_category(
+        restaurant["id"],
+        item["category_id"]
+    )
+
+    if not category:
+        raise HTTPException(
+            status_code=400,
+            detail="Item category is not active"
+        )
+
+    return restore_owner_item(
+        restaurant["id"],
+        item_id,
+        actor=current_user
+    )
 
 
 @router.patch("/items/{item_id}/toggle")
@@ -322,6 +403,7 @@ def toggle_item(
     current_user=Depends(require_role("owner"))
 ):
 
+    check_owner_mutation_rate_limit(current_user)
     restaurant = _owner_restaurant(current_user)
     item = _assert_item_belongs_to_owner(
         restaurant["id"],
@@ -331,7 +413,8 @@ def toggle_item(
     return toggle_item_availability(
         restaurant["id"],
         item_id,
-        item["is_available"]
+        item["is_available"],
+        actor=current_user
     )
 
 
@@ -342,6 +425,7 @@ def update_price(
     current_user=Depends(require_role("owner"))
 ):
 
+    check_owner_mutation_rate_limit(current_user)
     restaurant = _owner_restaurant(current_user)
     _assert_item_belongs_to_owner(
         restaurant["id"],
@@ -351,7 +435,8 @@ def update_price(
     return update_item_price(
         restaurant["id"],
         item_id,
-        price
+        price,
+        actor=current_user
     )
 
 
@@ -361,14 +446,16 @@ def upload_menu_image(
     current_user=Depends(require_role("owner"))
 ):
 
+    check_upload_rate_limit(current_user)
     validate_image_upload(file)
 
     try:
         image_url = upload_image(file.file)
     except RuntimeError as exc:
+        logger.exception("Failed to upload owner menu image")
         raise HTTPException(
             status_code=500,
-            detail=str(exc)
+            detail="Image upload failed"
         ) from exc
 
     return {

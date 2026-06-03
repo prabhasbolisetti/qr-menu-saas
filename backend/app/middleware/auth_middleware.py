@@ -1,22 +1,13 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import logging
 
 from app.services.supabase_service import auth_supabase, supabase
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
 VALID_ROLES = {"super", "owner"}
-
-
-def _metadata_value(user, key: str):
-
-    app_metadata = getattr(user, "app_metadata", None) or {}
-    user_metadata = getattr(user, "user_metadata", None) or {}
-
-    return (
-        app_metadata.get(key)
-        or user_metadata.get(key)
-    )
+logger = logging.getLogger(__name__)
 
 
 def _get_profile(user_id: str):
@@ -32,31 +23,15 @@ def _get_profile(user_id: str):
 
         return response.data
     except Exception:
-        return None
-
-
-def _sync_profile_from_metadata(user, role: str):
-
-    if role not in VALID_ROLES:
-        return None
-
-    payload = {
-        "id": user.id,
-        "email": getattr(user, "email", None),
-        "role": role,
-        "full_name": _metadata_value(user, "full_name")
-    }
-
-    try:
-        response = (
-            supabase.table("profiles")
-            .upsert(payload)
-            .execute()
+        logger.exception(
+            "Failed to load user profile",
+            extra={
+                "fields": {
+                    "user_id": user_id
+                }
+            }
         )
-
-        return response.data[0] if response.data else payload
-    except Exception:
-        return payload
+        return None
 
 
 def build_user_identity(user):
@@ -69,16 +44,21 @@ def build_user_identity(user):
 
     user_id = user.id
     profile = _get_profile(user_id)
-    metadata_role = _metadata_value(user, "role")
-    role = (profile or {}).get("role") or metadata_role
+    role = (profile or {}).get("role")
 
     if role not in VALID_ROLES:
         role = None
 
-    if not profile and role:
-        profile = _sync_profile_from_metadata(user, role)
-
     if not role:
+        logger.warning(
+            "Authenticated user has no configured database role",
+            extra={
+                "fields": {
+                    "user_id": user_id,
+                    "email": getattr(user, "email", None)
+                }
+            }
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User role not configured"

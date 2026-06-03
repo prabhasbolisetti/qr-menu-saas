@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 import logging
+from datetime import datetime, timezone
 
+from app.services.audit_service import record_audit_event
 from app.services.supabase_service import supabase
 from app.services.menu_service import clear_public_menu_cache
 
@@ -21,6 +23,31 @@ def _single_response_data(response, resource_name: str):
         raise RuntimeError(f"Supabase returned no {resource_name}")
 
     return response.data[0]
+
+
+def _utcnow_iso():
+
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _soft_delete_payload(actor=None):
+
+    payload = {
+        "deleted_at": _utcnow_iso()
+    }
+
+    if actor:
+        payload["deleted_by"] = actor.get("user_id")
+
+    return payload
+
+
+def _restore_payload():
+
+    return {
+        "deleted_at": None,
+        "deleted_by": None
+    }
 
 
 def _is_missing_bestseller_column_error(exc: Exception):
@@ -75,6 +102,7 @@ def _update_menu_item_with_schema_fallback(item_id: str, payload: dict):
             supabase.table("menu_items")
             .update(payload)
             .eq("id", item_id)
+            .is_("deleted_at", "null")
             .execute()
         )
     except Exception as exc:
@@ -88,6 +116,7 @@ def _update_menu_item_with_schema_fallback(item_id: str, payload: dict):
                 supabase.table("menu_items")
                 .select("*")
                 .eq("id", item_id)
+                .is_("deleted_at", "null")
                 .execute()
             )
         else:
@@ -100,6 +129,7 @@ def _update_menu_item_with_schema_fallback(item_id: str, payload: dict):
                 supabase.table("menu_items")
                 .update(safe_payload)
                 .eq("id", item_id)
+                .is_("deleted_at", "null")
                 .execute()
             )
 
@@ -109,16 +139,29 @@ def _update_menu_item_with_schema_fallback(item_id: str, payload: dict):
 def _execute_single_insert(table_name: str, payload: dict):
 
     try:
-        logger.info(f"Inserting into {table_name}: {payload}")
+        logger.info(
+            "Inserting row",
+            extra={
+                "fields": {
+                    "table": table_name
+                }
+            }
+        )
         response = (
             supabase.table(table_name)
             .insert(payload)
             .execute()
         )
-        logger.info(f"Insert successful: {response.data}")
         return _single_response_data(response, table_name)
-    except Exception as e:
-        logger.error(f"Insert failed for {table_name}: {str(e)}", exc_info=True)
+    except Exception:
+        logger.exception(
+            "Insert failed",
+            extra={
+                "fields": {
+                    "table": table_name
+                }
+            }
+        )
         raise
 
 
@@ -142,19 +185,19 @@ def _sync_owner_profile(user, full_name: str | None = None):
 
         return response.data[0] if response.data else base_profile
     except Exception:
-        try:
-            response = (
-                supabase.table("profiles")
-                .upsert(base_profile)
-                .execute()
-            )
+        logger.exception(
+            "Failed to sync owner database profile",
+            extra={
+                "fields": {
+                    "user_id": user.id,
+                    "email": user.email
+                }
+            }
+        )
+        raise
 
-            return response.data[0] if response.data else base_profile
-        except Exception:
-            return base_profile
 
-
-def create_restaurant(data):
+def create_restaurant(data, actor=None):
 
     payload = {
         "owner_id": data.owner_id,
@@ -166,10 +209,25 @@ def create_restaurant(data):
         "is_open": getattr(data, "is_open", True)
     }
 
-    return _execute_single_insert(
+    restaurant = _execute_single_insert(
         "restaurants",
         payload
     )
+
+    record_audit_event(
+        actor,
+        "restaurant.created",
+        "restaurant",
+        restaurant.get("id"),
+        restaurant.get("id"),
+        {
+            "name": restaurant.get("name"),
+            "slug": restaurant.get("slug"),
+            "owner_id": restaurant.get("owner_id")
+        }
+    )
+
+    return restaurant
 
 
 def create_owner_account(data):
@@ -179,11 +237,7 @@ def create_owner_account(data):
         "password": data.password,
         "email_confirm": True,
         "user_metadata": {
-            "role": "owner",
             "full_name": data.full_name
-        },
-        "app_metadata": {
-            "role": "owner"
         }
     })
 
@@ -201,7 +255,7 @@ def create_owner_account(data):
     }
 
 
-def onboard_restaurant(data):
+def onboard_restaurant(data, actor=None):
 
     owner = create_owner_account(SimpleNamespace(
         email=data.owner_email,
@@ -218,12 +272,19 @@ def onboard_restaurant(data):
             logo_url=data.logo_url,
             is_active=data.is_active,
             is_open=data.is_open
-        ))
+        ), actor=actor)
     except Exception:
         try:
             supabase.auth.admin.delete_user(owner["id"])
         except Exception:
-            pass
+            logger.exception(
+                "Failed to rollback owner account after restaurant onboarding error",
+                extra={
+                    "fields": {
+                        "owner_id": owner["id"]
+                    }
+                }
+            )
 
         raise
 
@@ -240,6 +301,7 @@ def get_restaurant_by_id(restaurant_id: str):
             supabase.table("restaurants")
             .select("*")
             .eq("id", restaurant_id)
+            .is_("deleted_at", "null")
             .single()
             .execute()
         )
@@ -256,7 +318,8 @@ def get_restaurant_by_id(restaurant_id: str):
 
 def update_restaurant_open_state(
     restaurant_id: str,
-    is_open: bool
+    is_open: bool,
+    actor=None
 ):
 
     try:
@@ -266,6 +329,7 @@ def update_restaurant_open_state(
                 "is_open": is_open
             })
             .eq("id", restaurant_id)
+            .is_("deleted_at", "null")
             .execute()
         )
     except Exception as exc:
@@ -279,12 +343,23 @@ def update_restaurant_open_state(
 
     restaurant = _single_response_data(response, "restaurant")
     clear_public_menu_cache(restaurant_id)
+    record_audit_event(
+        actor,
+        "restaurant.settings_changed",
+        "restaurant",
+        restaurant_id,
+        restaurant_id,
+        {
+            "field": "is_open",
+            "value": is_open
+        }
+    )
     return restaurant
 
 
 
 
-def create_category(data):
+def create_category(data, actor=None):
 
     try:
         payload = {
@@ -293,18 +368,41 @@ def create_category(data):
             "display_order": data.display_order,
             "icon_emoji": data.icon_emoji
         }
-        logger.info(f"Creating category with payload: {payload}")
+        logger.info(
+            "Creating category",
+            extra={
+                "fields": {
+                    "restaurant_id": data.restaurant_id
+                }
+            }
+        )
         response = (
             supabase.table("categories")
             .insert(payload)
             .execute()
         )
-        logger.info(f"Category created: {response.data}")
         category = _single_response_data(response, "category after insert")
         clear_public_menu_cache(category["restaurant_id"])
+        record_audit_event(
+            actor,
+            "category.created",
+            "category",
+            category.get("id"),
+            category.get("restaurant_id"),
+            {
+                "name": category.get("name")
+            }
+        )
         return category
-    except Exception as e:
-        logger.error(f"Failed to create category: {str(e)}", exc_info=True)
+    except Exception:
+        logger.exception(
+            "Failed to create category",
+            extra={
+                "fields": {
+                    "restaurant_id": data.restaurant_id
+                }
+            }
+        )
         raise
 
 
@@ -315,6 +413,7 @@ def get_categories(restaurant_id: str):
             supabase.table("categories")
             .select("*")
             .eq("restaurant_id", restaurant_id)
+            .is_("deleted_at", "null")
             .order("display_order")
             .execute()
         )
@@ -341,6 +440,7 @@ def get_category_for_restaurant(
             .select("*")
             .eq("restaurant_id", restaurant_id)
             .eq("id", category_id)
+            .is_("deleted_at", "null")
             .single()
             .execute()
         )
@@ -363,6 +463,7 @@ def get_menu_item_by_id(item_id: str):
             supabase.table("menu_items")
             .select("*")
             .eq("id", item_id)
+            .is_("deleted_at", "null")
             .single()
             .execute()
         )
@@ -377,7 +478,49 @@ def get_menu_item_by_id(item_id: str):
     return response.data
 
 
-def update_category(category_id: str, data):
+def get_menu_item_by_id_including_deleted(item_id: str):
+
+    try:
+        response = (
+            supabase.table("menu_items")
+            .select("*")
+            .eq("id", item_id)
+            .single()
+            .execute()
+        )
+    except Exception as exc:
+        logger.warning(
+            "Menu item lookup including deleted failed item_id=%s error=%s",
+            item_id,
+            exc
+        )
+        return None
+
+    return response.data
+
+
+def get_category_by_id_including_deleted(category_id: str):
+
+    try:
+        response = (
+            supabase.table("categories")
+            .select("*")
+            .eq("id", category_id)
+            .single()
+            .execute()
+        )
+    except Exception as exc:
+        logger.warning(
+            "Category lookup including deleted failed category_id=%s error=%s",
+            category_id,
+            exc
+        )
+        return None
+
+    return response.data
+
+
+def update_category(category_id: str, data, actor=None):
 
     update_data = _model_update_payload(data)
 
@@ -385,30 +528,94 @@ def update_category(category_id: str, data):
         supabase.table("categories")
         .update(update_data)
         .eq("id", category_id)
+        .is_("deleted_at", "null")
         .execute()
     )
 
     category = _single_response_data(response, "category after update")
     clear_public_menu_cache(category.get("restaurant_id"))
+    record_audit_event(
+        actor,
+        "category.updated",
+        "category",
+        category.get("id"),
+        category.get("restaurant_id"),
+        update_data
+    )
     return category
 
 
-def delete_category(category_id: str):
+def delete_category(category_id: str, actor=None):
 
     response = (
         supabase.table("categories")
-        .delete()
+        .update(_soft_delete_payload(actor))
         .eq("id", category_id)
+        .is_("deleted_at", "null")
         .execute()
     )
 
     for category in response.data or []:
+        item_response = (
+            supabase.table("menu_items")
+            .update(_soft_delete_payload(actor))
+            .eq("category_id", category_id)
+            .is_("deleted_at", "null")
+            .execute()
+        )
         clear_public_menu_cache(category.get("restaurant_id"))
+        record_audit_event(
+            actor,
+            "category.deleted",
+            "category",
+            category.get("id"),
+            category.get("restaurant_id"),
+            {
+                "name": category.get("name")
+            }
+        )
+
+        for item in item_response.data or []:
+            record_audit_event(
+                actor,
+                "item.deleted",
+                "menu_item",
+                item.get("id"),
+                item.get("restaurant_id"),
+                {
+                    "name": item.get("name"),
+                    "deleted_with_category_id": category_id
+                }
+            )
 
     return response.data
 
 
-def create_menu_item(data):
+def restore_category(category_id: str, actor=None):
+
+    response = (
+        supabase.table("categories")
+        .update(_restore_payload())
+        .eq("id", category_id)
+        .execute()
+    )
+
+    category = _single_response_data(response, "category after restore")
+    clear_public_menu_cache(category.get("restaurant_id"))
+    record_audit_event(
+        actor,
+        "category.restored",
+        "category",
+        category.get("id"),
+        category.get("restaurant_id"),
+        {
+            "name": category.get("name")
+        }
+    )
+    return category
+
+
+def create_menu_item(data, actor=None):
 
     try:
         payload = {
@@ -425,20 +632,47 @@ def create_menu_item(data):
             "is_bestseller": data.is_bestseller,
             "display_order": data.display_order
         }
-        logger.info(f"Creating menu item with payload: {payload}")
+        logger.info(
+            "Creating menu item",
+            extra={
+                "fields": {
+                    "restaurant_id": data.restaurant_id,
+                    "category_id": data.category_id
+                }
+            }
+        )
         response = _insert_menu_item_with_schema_fallback(payload)
-        logger.info(f"Menu item created: {response.data}")
         item = _single_response_data(response, "menu item after insert")
         clear_public_menu_cache(item["restaurant_id"])
+        record_audit_event(
+            actor,
+            "item.created",
+            "menu_item",
+            item.get("id"),
+            item.get("restaurant_id"),
+            {
+                "name": item.get("name"),
+                "category_id": item.get("category_id")
+            }
+        )
         return item
-    except Exception as e:
-        logger.error(f"Failed to create menu item: {str(e)}", exc_info=True)
+    except Exception:
+        logger.exception(
+            "Failed to create menu item",
+            extra={
+                "fields": {
+                    "restaurant_id": data.restaurant_id,
+                    "category_id": data.category_id
+                }
+            }
+        )
         raise
 
 
 def update_menu_item(
     item_id: str,
-    data
+    data,
+    actor=None
 ):
 
     update_data = _model_update_payload(data)
@@ -450,28 +684,72 @@ def update_menu_item(
 
     item = _single_response_data(response, "menu item after update")
     clear_public_menu_cache(item.get("restaurant_id"))
+    record_audit_event(
+        actor,
+        "item.updated",
+        "menu_item",
+        item.get("id"),
+        item.get("restaurant_id"),
+        update_data
+    )
     return item
 
 
-def delete_menu_item(item_id: str):
+def delete_menu_item(item_id: str, actor=None):
 
     response = (
         supabase.table("menu_items")
-        .delete()
+        .update(_soft_delete_payload(actor))
         .eq("id", item_id)
+        .is_("deleted_at", "null")
         .execute()
     )
 
     for item in response.data or []:
         clear_public_menu_cache(item.get("restaurant_id"))
+        record_audit_event(
+            actor,
+            "item.deleted",
+            "menu_item",
+            item.get("id"),
+            item.get("restaurant_id"),
+            {
+                "name": item.get("name")
+            }
+        )
 
     return response.data
+
+
+def restore_menu_item(item_id: str, actor=None):
+
+    response = (
+        supabase.table("menu_items")
+        .update(_restore_payload())
+        .eq("id", item_id)
+        .execute()
+    )
+
+    item = _single_response_data(response, "menu item after restore")
+    clear_public_menu_cache(item.get("restaurant_id"))
+    record_audit_event(
+        actor,
+        "item.restored",
+        "menu_item",
+        item.get("id"),
+        item.get("restaurant_id"),
+        {
+            "name": item.get("name")
+        }
+    )
+    return item
 
 def get_all_restaurants():
 
     response = (
         supabase.table("restaurants")
         .select("*")
+        .is_("deleted_at", "null")
         .order("created_at")
         .execute()
     )

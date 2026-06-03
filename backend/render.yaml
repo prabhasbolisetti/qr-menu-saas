@@ -29,10 +29,14 @@ services:
         sync: false
       - key: BACKEND_CORS_ORIGINS
         sync: false
-      - key: BACKEND_CORS_ORIGIN_REGEX
-        value: "https://.*\\.vercel\\.app"
       - key: BACKEND_ALLOWED_HOSTS
         sync: false
+      - key: RATE_LIMIT_STORAGE_URL
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: 0.1
       - key: SUPABASE_POSTGREST_TIMEOUT_SECONDS
         value: 2.5
       - key: PUBLIC_MENU_CACHE_TTL_SECONDS

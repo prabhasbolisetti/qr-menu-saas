@@ -9,6 +9,13 @@ load_dotenv()
 class Settings:
 
     def __init__(self):
+        configured_cors_origins = os.getenv(
+            "BACKEND_CORS_ORIGINS"
+        )
+
+        configured_cors_origin_regex = os.getenv(
+            "BACKEND_CORS_ORIGIN_REGEX"
+        )
 
         self.ENVIRONMENT = os.getenv(
             "ENVIRONMENT",
@@ -44,9 +51,9 @@ class Settings:
             "https://qr-menu-saas-ten.vercel.app"
         )
 
-        self.BACKEND_CORS_ORIGINS = os.getenv(
-            "BACKEND_CORS_ORIGINS",
-            (
+        self.BACKEND_CORS_ORIGINS = (
+            configured_cors_origins
+            or (
                 "http://localhost:5173,http://localhost:5174,http://localhost:5175,"
                 "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,"
                 "https://qr-menu-saas-ten.vercel.app"
@@ -58,10 +65,8 @@ class Settings:
             "*"
         )
 
-        self.BACKEND_CORS_ORIGIN_REGEX = os.getenv(
-            "BACKEND_CORS_ORIGIN_REGEX",
-            r"https://.*\.vercel\.app"
-        )
+        self.BACKEND_CORS_ORIGIN_REGEX = configured_cors_origin_regex
+        self._cors_origins_configured = configured_cors_origins is not None
 
         self.SUPABASE_POSTGREST_TIMEOUT_SECONDS = float(
             os.getenv(
@@ -108,6 +113,26 @@ class Settings:
         self.CLOUDINARY_FOLDER = os.getenv(
             "CLOUDINARY_FOLDER",
             "qr-menu/menu-items"
+        )
+
+        self.RATE_LIMIT_STORAGE_URL = os.getenv(
+            "RATE_LIMIT_STORAGE_URL"
+        )
+
+        self.SENTRY_DSN = os.getenv(
+            "SENTRY_DSN"
+        )
+
+        self.SENTRY_TRACES_SAMPLE_RATE = float(
+            os.getenv(
+                "SENTRY_TRACES_SAMPLE_RATE",
+                "0.1"
+            )
+        )
+
+        self.LOG_FORMAT = os.getenv(
+            "LOG_FORMAT",
+            "json" if self.is_production else "text"
         )
 
     @property
@@ -175,6 +200,32 @@ class Settings:
             raise RuntimeError(
                 "FRONTEND_PUBLIC_BASE_URL must be an absolute http(s) URL"
             )
+
+        if self.is_production:
+            if not self._cors_origins_configured:
+                raise RuntimeError(
+                    "BACKEND_CORS_ORIGINS must be explicitly configured in production"
+                )
+
+            if "*" in self.cors_origins:
+                raise RuntimeError(
+                    "BACKEND_CORS_ORIGINS cannot contain '*' in production"
+                )
+
+            if self.BACKEND_CORS_ORIGIN_REGEX:
+                raise RuntimeError(
+                    "BACKEND_CORS_ORIGIN_REGEX is not allowed in production"
+                )
+
+            if "*" in self.allowed_hosts:
+                raise RuntimeError(
+                    "BACKEND_ALLOWED_HOSTS cannot contain '*' in production"
+                )
+
+            if not self.RATE_LIMIT_STORAGE_URL:
+                raise RuntimeError(
+                    "RATE_LIMIT_STORAGE_URL must be configured in production"
+                )
 
 
 settings = Settings()

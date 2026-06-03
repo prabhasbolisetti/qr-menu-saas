@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.middleware.auth_middleware import build_user_identity, get_current_user
+from app.middleware.rate_limit import check_login_rate_limit
 from app.schemas.user import LoginSchema
 from app.services.supabase_service import auth_supabase
 
@@ -11,7 +12,10 @@ router = APIRouter(
 )
 
 
-@router.post("/login")
+@router.post(
+    "/login",
+    dependencies=[Depends(check_login_rate_limit)]
+)
 def login(data: LoginSchema):
 
     try:

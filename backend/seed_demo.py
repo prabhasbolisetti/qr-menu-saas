@@ -12,6 +12,7 @@ import os
 import sys
 from urllib import request, parse
 import json
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from supabase import create_client
@@ -112,6 +113,10 @@ ITEMS = [
 ]
 
 
+def utcnow_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
 def require_env():
     missing = [
         key
@@ -171,11 +176,7 @@ def upsert_auth_user(email, password, role, full_name):
         "password": password,
         "email_confirm": True,
         "user_metadata": {
-            "role": role,
             "full_name": full_name,
-        },
-        "app_metadata": {
-            "role": role,
         },
     }
 
@@ -229,23 +230,59 @@ def main():
     restaurant_payload = {
         **RESTAURANT,
         "owner_id": owner_user["id"],
+        "deleted_at": None,
+        "deleted_by": None,
     }
-    restaurant_response = (
+
+    existing_restaurants = (
         supabase.table("restaurants")
-        .upsert(restaurant_payload, on_conflict="slug")
+        .select("*")
+        .eq("slug", RESTAURANT["slug"])
+        .limit(1)
         .execute()
+        .data
     )
+
+    if existing_restaurants:
+        restaurant_id = existing_restaurants[0]["id"]
+        restaurant_response = (
+            supabase.table("restaurants")
+            .update(restaurant_payload)
+            .eq("id", restaurant_id)
+            .execute()
+        )
+    else:
+        restaurant_response = (
+            supabase.table("restaurants")
+            .insert(restaurant_payload)
+            .execute()
+        )
+
     restaurant = restaurant_response.data[0]
 
     existing_categories = (
         supabase.table("categories")
         .select("id")
         .eq("restaurant_id", restaurant["id"])
+        .is_("deleted_at", "null")
         .execute()
         .data
     )
     for category in existing_categories:
-        supabase.table("categories").delete().eq("id", category["id"]).execute()
+        deleted_at = utcnow_iso()
+        (
+            supabase.table("categories")
+            .update({"deleted_at": deleted_at})
+            .eq("id", category["id"])
+            .execute()
+        )
+        (
+            supabase.table("menu_items")
+            .update({"deleted_at": deleted_at})
+            .eq("category_id", category["id"])
+            .is_("deleted_at", "null")
+            .execute()
+        )
 
     category_ids = {}
     for category in CATEGORIES:

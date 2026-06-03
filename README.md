@@ -66,14 +66,13 @@ Set `VITE_API_BASE_URL=http://localhost:8000` for local backend development.
 
 ## Database setup
 
-Run the SQL in `backend/sql/production_readiness.sql` in the Supabase SQL editor. It adds required production columns, indexes, constraints, profile sync, and referential integrity.
+Run the SQL in `backend/sql/production_readiness.sql` in the Supabase SQL editor. It creates or upgrades the schema, enables RLS, adds tenant policies, audit logging, soft deletes, indexes, constraints, and public menu RPC support.
 
-After the schema is ready, create at least one `super` user in Supabase Auth with role metadata:
+After the schema is ready, create at least one platform admin in Supabase Auth, then insert the database role in `public.profiles`:
 
-```json
-{
-  "role": "super"
-}
+```sql
+insert into public.profiles (id, email, role, full_name)
+values ('AUTH_USER_UUID', 'admin@example.com', 'super', 'Platform Admin');
 ```
 
 Then log in at `/login` and onboard restaurants from the platform admin dashboard.
@@ -97,6 +96,8 @@ Then log in at `/login` and onboard restaurants from the platform admin dashboar
 Set `FRONTEND_PUBLIC_BASE_URL` to the deployed frontend URL so generated QR codes point at the live menu.
 Set `BACKEND_ALLOWED_HOSTS` to the deployed backend host and `BACKEND_CORS_ORIGINS`
 to the deployed frontend URL.
+Set `RATE_LIMIT_STORAGE_URL` to a Redis URL in production.
+Set `SENTRY_DSN` to enable production error tracking and request tracing.
 
 ## Useful commands
 
@@ -113,6 +114,6 @@ backend/venv/bin/python -m compileall backend/app
 - Public menu supports categories, item photos, veg/non-veg markers, specials, bestsellers, MRP pricing, open/closed state, and mobile sticky navigation.
 - Hidden menu items stay out of the public menu.
 - Backend validates required environment values at startup and adds security headers in production.
-- Image uploads are restricted to JPEG/PNG/WebP and capped by `MAX_IMAGE_UPLOAD_MB`.
-- Database migration protects owner/category/item relationships and slug uniqueness.
+- Image uploads are restricted to real JPEG/PNG/WebP images and capped by `MAX_IMAGE_UPLOAD_MB`.
+- Database migration protects owner/category/item relationships, slug uniqueness, RLS tenant isolation, soft deletes, and audit logging.
 - Deployment templates and environment examples are included.

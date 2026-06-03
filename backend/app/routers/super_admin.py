@@ -10,6 +10,7 @@ import logging
 from app.middleware.auth_middleware import (
     require_role
 )
+from app.middleware.rate_limit import check_upload_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -17,12 +18,6 @@ logger = logging.getLogger(__name__)
 def _database_error_detail(operation: str, exc: Exception):
 
     error_text = str(exc)
-
-    if "is_open" in error_text and "restaurants" in error_text:
-        return (
-            f"{operation} failed: database migration required "
-            "for restaurants.is_open"
-        )
 
     return f"{operation} failed"
 
@@ -56,14 +51,18 @@ from app.services.admin_service import (
     create_category,
     update_category,
     delete_category,
+    restore_category,
     get_categories,
     get_category_for_restaurant,
+    get_category_by_id_including_deleted,
     create_menu_item,
     update_menu_item,
     delete_menu_item,
+    restore_menu_item,
     get_all_restaurants,
     get_restaurant_by_id,
     get_menu_item_by_id,
+    get_menu_item_by_id_including_deleted,
     update_restaurant_open_state
 )
 
@@ -223,7 +222,10 @@ def create_new_restaurant(
 ):
 
     try:
-        restaurant = create_restaurant(data)
+        restaurant = create_restaurant(
+            data,
+            actor=current_user
+        )
     except Exception as e:
         logger.error("Failed to create restaurant: %s", e, exc_info=True)
         raise HTTPException(
@@ -241,7 +243,10 @@ def onboard_new_restaurant(
 ):
 
     try:
-        result = onboard_restaurant(data)
+        result = onboard_restaurant(
+            data,
+            actor=current_user
+        )
     except Exception as e:
         logger.error("Failed to onboard restaurant: %s", e, exc_info=True)
         raise HTTPException(
@@ -272,7 +277,8 @@ def update_restaurant_open_status(
     try:
         return update_restaurant_open_state(
             restaurant_id,
-            data.is_open
+            data.is_open,
+            actor=current_user
         )
     except Exception as e:
         logger.error(
@@ -294,23 +300,24 @@ def create_new_category(
 ):
 
     try:
-        logger.info(f"Creating category: {data}")
         restaurant = get_restaurant_by_id(data.restaurant_id)
         if not restaurant:
             raise HTTPException(
                 status_code=404,
                 detail="Restaurant not found"
             )
-        category = create_category(data)
-        logger.info(f"Category created successfully: {category}")
+        category = create_category(
+            data,
+            actor=current_user
+        )
         return category
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to create category: {str(e)}", exc_info=True)
+        logger.exception("Failed to create category")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create category: {str(e)}"
+            detail="Failed to create category"
         ) from e
 
 
@@ -323,7 +330,8 @@ def update_existing_category(
 
     return update_category(
         category_id,
-        data
+        data,
+        actor=current_user
     )
 
 
@@ -333,11 +341,34 @@ def delete_existing_category(
     current_user=Depends(require_role("super"))
 ):
 
-    delete_category(category_id)
+    delete_category(
+        category_id,
+        actor=current_user
+    )
 
     return {
         "message": "Category deleted successfully"
     }
+
+
+@router.post("/categories/{category_id}/restore")
+def restore_existing_category(
+    category_id: str,
+    current_user=Depends(require_role("super"))
+):
+
+    category = get_category_by_id_including_deleted(category_id)
+
+    if not category:
+        raise HTTPException(
+            status_code=404,
+            detail="Category not found"
+        )
+
+    return restore_category(
+        category_id,
+        actor=current_user
+    )
 
 
 @router.post("/items")
@@ -347,7 +378,6 @@ def create_new_item(
 ):
 
     try:
-        logger.info(f"Creating menu item: {data}")
         restaurant = get_restaurant_by_id(data.restaurant_id)
         if not restaurant:
             raise HTTPException(
@@ -363,16 +393,18 @@ def create_new_item(
                 status_code=400,
                 detail="Category does not belong to restaurant"
             )
-        item = create_menu_item(data)
-        logger.info(f"Menu item created successfully: {item}")
+        item = create_menu_item(
+            data,
+            actor=current_user
+        )
         return item
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to create menu item: {str(e)}", exc_info=True)
+        logger.exception("Failed to create menu item")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create menu item: {str(e)}"
+            detail="Failed to create menu item"
         ) from e
 
 
@@ -405,7 +437,8 @@ def update_item(
 
     item = update_menu_item(
         item_id,
-        data
+        data,
+        actor=current_user
     )
 
     return item
@@ -417,11 +450,45 @@ def delete_item(
     current_user=Depends(require_role("super"))
 ):
 
-    delete_menu_item(item_id)
+    delete_menu_item(
+        item_id,
+        actor=current_user
+    )
 
     return {
         "message": "Item deleted successfully"
     }
+
+
+@router.post("/items/{item_id}/restore")
+def restore_item(
+    item_id: str,
+    current_user=Depends(require_role("super"))
+):
+
+    item = get_menu_item_by_id_including_deleted(item_id)
+
+    if not item:
+        raise HTTPException(
+            status_code=404,
+            detail="Item not found"
+        )
+
+    category = get_category_for_restaurant(
+        item["restaurant_id"],
+        item["category_id"]
+    )
+
+    if not category:
+        raise HTTPException(
+            status_code=400,
+            detail="Item category is not active"
+        )
+
+    return restore_menu_item(
+        item_id,
+        actor=current_user
+    )
 
 
 @router.post("/upload/image")
@@ -430,14 +497,16 @@ def upload_menu_image(
     current_user=Depends(require_role("super"))
 ):
 
+    check_upload_rate_limit(current_user)
     validate_image_upload(file)
 
     try:
         image_url = upload_image(file.file)
     except RuntimeError as exc:
+        logger.exception("Failed to upload super admin menu image")
         raise HTTPException(
             status_code=500,
-            detail=str(exc)
+            detail="Image upload failed"
         ) from exc
 
     return {

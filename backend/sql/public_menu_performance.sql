@@ -7,6 +7,15 @@ add column if not exists is_open boolean not null default true;
 alter table public.menu_items
 add column if not exists is_bestseller boolean not null default false;
 
+alter table public.restaurants
+add column if not exists deleted_at timestamptz;
+
+alter table public.categories
+add column if not exists deleted_at timestamptz;
+
+alter table public.menu_items
+add column if not exists deleted_at timestamptz;
+
 update public.menu_items
 set is_bestseller = true
 where is_special = true
@@ -16,14 +25,14 @@ create unique index concurrently if not exists restaurants_slug_unique
 on public.restaurants (slug);
 
 create index concurrently if not exists restaurants_public_slug_cover_idx
-on public.restaurants (slug)
+on public.restaurants (slug, deleted_at)
 include (id, name, logo_url, city, is_active, is_open);
 
 create index concurrently if not exists categories_restaurant_display_order_idx
 on public.categories (restaurant_id, display_order, id);
 
 create index concurrently if not exists categories_public_menu_cover_idx
-on public.categories (restaurant_id, display_order, id)
+on public.categories (restaurant_id, deleted_at, display_order, id)
 include (name, icon_emoji);
 
 create index concurrently if not exists menu_items_restaurant_available_display_order_idx
@@ -34,7 +43,7 @@ on public.menu_items (restaurant_id, category_id, is_available, display_order, i
 
 create index concurrently if not exists menu_items_public_available_category_order_idx
 on public.menu_items (restaurant_id, category_id, display_order, id)
-where is_available = true;
+where is_available = true and deleted_at is null;
 
 create or replace function public.get_public_menu(menu_slug text)
 returns jsonb
@@ -53,6 +62,7 @@ as $$
       is_open
     from public.restaurants
     where slug = menu_slug
+      and deleted_at is null
     limit 1
   ),
   items_by_category as (
@@ -78,7 +88,12 @@ as $$
     join restaurant r
       on r.id = mi.restaurant_id
      and r.is_active is true
+    join public.categories c
+      on c.id = mi.category_id
+     and c.restaurant_id = mi.restaurant_id
+     and c.deleted_at is null
     where mi.is_available = true
+      and mi.deleted_at is null
     group by mi.restaurant_id, mi.category_id
   )
   select
@@ -123,6 +138,7 @@ as $$
                 on items_by_category.category_id = c.id
                and items_by_category.restaurant_id = c.restaurant_id
               where c.restaurant_id = r.id
+                and c.deleted_at is null
             ) category_rows
           ),
           '[]'::jsonb
