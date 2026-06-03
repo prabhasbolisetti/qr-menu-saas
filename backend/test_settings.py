@@ -55,6 +55,22 @@ class SettingsAllowedHostsTests(unittest.TestCase):
         )
         settings.validate_backend_config()
 
+    def test_custom_allowed_hosts_keep_render_hostname_trusted(self):
+
+        settings = build_settings({
+            "BACKEND_ALLOWED_HOSTS": "https://api.example.com",
+            "RENDER_EXTERNAL_HOSTNAME": "qr-menu-api.onrender.com"
+        })
+
+        self.assertEqual(
+            settings.allowed_hosts,
+            [
+                "api.example.com",
+                "qr-menu-api.onrender.com"
+            ]
+        )
+        settings.validate_backend_config()
+
     def test_configured_wildcard_allowed_host_is_rejected_in_production(self):
 
         settings = build_settings({

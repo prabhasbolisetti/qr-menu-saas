@@ -98,7 +98,8 @@ Set `BACKEND_CORS_ORIGINS` to the deployed frontend URL.
 On Render, `BACKEND_ALLOWED_HOSTS` can be left blank for the default
 `onrender.com` backend host because the API uses Render's
 `RENDER_EXTERNAL_HOSTNAME` automatically. If you attach a custom API domain, set
-`BACKEND_ALLOWED_HOSTS` to that backend host, for example `api.yourdomain.com`.
+`BACKEND_ALLOWED_HOSTS` to that backend host, for example `api.yourdomain.com`;
+the default Render hostname remains trusted automatically.
 Set `RATE_LIMIT_STORAGE_URL` to a Redis URL in production.
 Set `SENTRY_DSN` to enable production error tracking and request tracing.
 

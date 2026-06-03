@@ -80,7 +80,7 @@ class Settings:
         )
 
         self.BACKEND_ALLOWED_HOSTS = (
-            configured_allowed_hosts
+            self._build_allowed_hosts_config(configured_allowed_hosts)
             if configured_allowed_hosts and configured_allowed_hosts.strip()
             else self._default_allowed_hosts()
         )
@@ -166,12 +166,55 @@ class Settings:
         if not self.is_production:
             return "*"
 
-        render_hostname = (
-            self.RENDER_EXTERNAL_HOSTNAME
-            or urlparse(self.RENDER_EXTERNAL_URL or "").hostname
-        )
+        render_hostname = self._render_allowed_host()
 
         return render_hostname or ""
+
+    def _build_allowed_hosts_config(self, configured_allowed_hosts):
+
+        configured_hosts = [
+            self._normalize_allowed_host(host)
+            for host in configured_allowed_hosts.split(",")
+            if host.strip()
+        ]
+
+        allowed_hosts = []
+
+        for host in configured_hosts:
+            if host and host not in allowed_hosts:
+                allowed_hosts.append(host)
+
+        render_hostname = self._render_allowed_host()
+
+        if (
+            self.is_production
+            and render_hostname
+            and render_hostname not in allowed_hosts
+        ):
+            allowed_hosts.append(render_hostname)
+
+        return ",".join(allowed_hosts)
+
+    def _render_allowed_host(self):
+
+        render_hostname = (self.RENDER_EXTERNAL_HOSTNAME or "").strip()
+
+        if render_hostname:
+            return render_hostname
+
+        return urlparse(self.RENDER_EXTERNAL_URL or "").hostname
+
+    @staticmethod
+    def _normalize_allowed_host(host):
+
+        host = host.strip().rstrip("/")
+
+        if "://" not in host:
+            return host
+
+        parsed_host = urlparse(host).hostname
+
+        return parsed_host or host
 
     @property
     def cors_origins(self):

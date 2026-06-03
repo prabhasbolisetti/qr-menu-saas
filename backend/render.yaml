@@ -29,7 +29,7 @@ services:
         sync: false
       - key: BACKEND_CORS_ORIGINS
         sync: false
-      # Optional for Render's default onrender.com URL. Set for custom API domains.
+      # Optional for custom API domains. Render's default onrender.com host is automatic.
       - key: BACKEND_ALLOWED_HOSTS
         sync: false
       - key: RATE_LIMIT_STORAGE_URL
