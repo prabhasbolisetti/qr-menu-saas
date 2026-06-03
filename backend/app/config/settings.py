@@ -51,13 +51,20 @@ class Settings:
             "https://qr-menu-saas-ten.vercel.app"
         )
 
+        development_cors_origins = (
+            "http://localhost:5173,http://localhost:5174,http://localhost:5175,"
+            "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,"
+            "https://qr-menu-saas-ten.vercel.app"
+        )
+
+        # Production startup must not fail just because a deploy target missed a
+        # new env var. Missing CORS config is still dangerous because browsers
+        # cannot call the API from the frontend, so production falls back to an
+        # empty allow-list and main.py emits a high-severity warning.
         self.BACKEND_CORS_ORIGINS = (
             configured_cors_origins
-            or (
-                "http://localhost:5173,http://localhost:5174,http://localhost:5175,"
-                "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,"
-                "https://qr-menu-saas-ten.vercel.app"
-            )
+            if configured_cors_origins is not None
+            else ("" if self.is_production else development_cors_origins)
         )
 
         self.BACKEND_ALLOWED_HOSTS = os.getenv(
@@ -67,6 +74,7 @@ class Settings:
 
         self.BACKEND_CORS_ORIGIN_REGEX = configured_cors_origin_regex
         self._cors_origins_configured = configured_cors_origins is not None
+        self._cors_origin_regex_configured = configured_cors_origin_regex is not None
 
         self.SUPABASE_POSTGREST_TIMEOUT_SECONDS = float(
             os.getenv(
@@ -143,11 +151,52 @@ class Settings:
     @property
     def cors_origins(self):
 
-        return [
+        origins = [
             origin.strip().rstrip("/")
             for origin in self.BACKEND_CORS_ORIGINS.split(",")
             if origin.strip()
         ]
+
+        if not self.is_production:
+            return origins
+
+        return [
+            origin
+            for origin in origins
+            if origin != "*"
+        ]
+
+    @property
+    def cors_origin_regex(self):
+
+        if self.is_production:
+            return None
+
+        return self.BACKEND_CORS_ORIGIN_REGEX
+
+    @property
+    def cors_origins_missing_in_production(self):
+
+        return self.is_production and not self._cors_origins_configured
+
+    @property
+    def cors_regex_ignored_in_production(self):
+
+        return self.is_production and self._cors_origin_regex_configured
+
+    @property
+    def cors_wildcard_ignored_in_production(self):
+
+        if not self.is_production:
+            return False
+
+        configured_origins = [
+            origin.strip().rstrip("/")
+            for origin in self.BACKEND_CORS_ORIGINS.split(",")
+            if origin.strip()
+        ]
+
+        return "*" in configured_origins
 
     @property
     def allowed_hosts(self):
@@ -169,8 +218,7 @@ class Settings:
             "SUPABASE_URL": self.SUPABASE_URL,
             "SUPABASE_ANON_KEY": self.SUPABASE_ANON_KEY,
             "SUPABASE_SERVICE_ROLE_KEY": self.SUPABASE_SERVICE_ROLE_KEY,
-            "FRONTEND_PUBLIC_BASE_URL": self.FRONTEND_PUBLIC_BASE_URL,
-            "BACKEND_CORS_ORIGINS": self.BACKEND_CORS_ORIGINS
+            "FRONTEND_PUBLIC_BASE_URL": self.FRONTEND_PUBLIC_BASE_URL
         }
 
         return [
@@ -202,21 +250,6 @@ class Settings:
             )
 
         if self.is_production:
-            if not self._cors_origins_configured:
-                raise RuntimeError(
-                    "BACKEND_CORS_ORIGINS must be explicitly configured in production"
-                )
-
-            if "*" in self.cors_origins:
-                raise RuntimeError(
-                    "BACKEND_CORS_ORIGINS cannot contain '*' in production"
-                )
-
-            if self.BACKEND_CORS_ORIGIN_REGEX:
-                raise RuntimeError(
-                    "BACKEND_CORS_ORIGIN_REGEX is not allowed in production"
-                )
-
             if "*" in self.allowed_hosts:
                 raise RuntimeError(
                     "BACKEND_ALLOWED_HOSTS cannot contain '*' in production"

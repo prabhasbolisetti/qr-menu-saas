@@ -71,6 +71,25 @@ app = FastAPI(
 
 allowed_origins = settings.cors_origins
 
+if settings.cors_origins_missing_in_production:
+    logger.critical(
+        "HIGH-SEVERITY CONFIG WARNING: BACKEND_CORS_ORIGINS is not configured "
+        "in production. API startup will continue, but browser CORS access is "
+        "disabled by default until explicit frontend origins are configured."
+    )
+
+if settings.cors_regex_ignored_in_production:
+    logger.warning(
+        "BACKEND_CORS_ORIGIN_REGEX is configured in production and has been "
+        "ignored. Production CORS must use explicit origins only."
+    )
+
+if settings.cors_wildcard_ignored_in_production:
+    logger.warning(
+        "Wildcard CORS origin '*' is configured in production and has been "
+        "ignored. Production CORS must never allow every browser origin."
+    )
+
 logger.info(
     "Allowed CORS origins: %s",
     allowed_origins
@@ -85,7 +104,11 @@ if "*" not in settings.allowed_hosts:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=None if settings.is_production else settings.BACKEND_CORS_ORIGIN_REGEX,
+    # Missing production CORS config is dangerous because the frontend cannot
+    # call protected APIs from browsers, but crashing the backend blocks health
+    # checks, incident response, and non-browser clients. An empty allow-list
+    # keeps the service alive without allowing unexpected browser origins.
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

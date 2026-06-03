@@ -55,6 +55,16 @@ SENTRY_DSN=https://your-sentry-dsn
 SENTRY_TRACES_SAMPLE_RATE=0.1
 ```
 
+`BACKEND_CORS_ORIGINS` should be set before sending real browser traffic.
+Production startup does not fail if it is missing because failed health checks
+make deploy recovery harder, but the API then uses an empty CORS allow-list.
+That means non-browser clients and Render health checks continue to work while
+browser calls from the frontend remain blocked until explicit origins are set.
+
+Do not set `BACKEND_CORS_ORIGIN_REGEX` in production. If it is present, the
+backend logs a warning and ignores it because production CORS must use exact
+frontend origins. Do not use `*`; wildcard origins are ignored in production.
+
 ## Rollback
 
 1. Pause writes by disabling dashboard access or putting the backend in maintenance mode.
