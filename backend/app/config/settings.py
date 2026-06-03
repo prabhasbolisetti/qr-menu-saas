@@ -51,6 +51,14 @@ class Settings:
             "https://qr-menu-saas-ten.vercel.app"
         )
 
+        self.RENDER_EXTERNAL_HOSTNAME = os.getenv(
+            "RENDER_EXTERNAL_HOSTNAME"
+        )
+
+        self.RENDER_EXTERNAL_URL = os.getenv(
+            "RENDER_EXTERNAL_URL"
+        )
+
         development_cors_origins = (
             "http://localhost:5173,http://localhost:5174,http://localhost:5175,"
             "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,"
@@ -67,9 +75,14 @@ class Settings:
             else ("" if self.is_production else development_cors_origins)
         )
 
-        self.BACKEND_ALLOWED_HOSTS = os.getenv(
-            "BACKEND_ALLOWED_HOSTS",
-            "*"
+        configured_allowed_hosts = os.getenv(
+            "BACKEND_ALLOWED_HOSTS"
+        )
+
+        self.BACKEND_ALLOWED_HOSTS = (
+            configured_allowed_hosts
+            if configured_allowed_hosts and configured_allowed_hosts.strip()
+            else self._default_allowed_hosts()
         )
 
         self.BACKEND_CORS_ORIGIN_REGEX = configured_cors_origin_regex
@@ -148,6 +161,18 @@ class Settings:
 
         return self.ENVIRONMENT.lower() == "production"
 
+    def _default_allowed_hosts(self):
+
+        if not self.is_production:
+            return "*"
+
+        render_hostname = (
+            self.RENDER_EXTERNAL_HOSTNAME
+            or urlparse(self.RENDER_EXTERNAL_URL or "").hostname
+        )
+
+        return render_hostname or ""
+
     @property
     def cors_origins(self):
 
@@ -206,6 +231,11 @@ class Settings:
             for host in self.BACKEND_ALLOWED_HOSTS.split(",")
             if host.strip()
         ]
+
+    @property
+    def allowed_hosts_missing_in_production(self):
+
+        return self.is_production and not self.allowed_hosts
 
     @property
     def max_image_upload_bytes(self):

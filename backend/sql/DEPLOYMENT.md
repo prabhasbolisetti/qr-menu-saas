@@ -61,6 +61,11 @@ make deploy recovery harder, but the API then uses an empty CORS allow-list.
 That means non-browser clients and Render health checks continue to work while
 browser calls from the frontend remain blocked until explicit origins are set.
 
+On Render, `BACKEND_ALLOWED_HOSTS` can be left blank when using the default
+`onrender.com` backend URL because the app trusts Render's
+`RENDER_EXTERNAL_HOSTNAME` automatically. Set `BACKEND_ALLOWED_HOSTS` explicitly
+when using a custom API domain, and never set it to `*` in production.
+
 Do not set `BACKEND_CORS_ORIGIN_REGEX` in production. If it is present, the
 backend logs a warning and ignores it because production CORS must use exact
 frontend origins. Do not use `*`; wildcard origins are ignored in production.

@@ -49,9 +49,9 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 Fill `backend/.env` with Supabase and Cloudinary credentials before starting.
-For production, set `ENVIRONMENT=production`, restrict `BACKEND_ALLOWED_HOSTS`
-to your backend domain, and keep the Supabase service role key only on the
-backend host.
+For production, set `ENVIRONMENT=production`, keep the Supabase service role
+key only on the backend host, and restrict `BACKEND_ALLOWED_HOSTS` to your API
+domain when using a custom backend domain.
 
 ### 2. Frontend
 
@@ -94,8 +94,11 @@ Then log in at `/login` and onboard restaurants from the platform admin dashboar
 - Add all variables from `backend/.env.example`
 
 Set `FRONTEND_PUBLIC_BASE_URL` to the deployed frontend URL so generated QR codes point at the live menu.
-Set `BACKEND_ALLOWED_HOSTS` to the deployed backend host and `BACKEND_CORS_ORIGINS`
-to the deployed frontend URL.
+Set `BACKEND_CORS_ORIGINS` to the deployed frontend URL.
+On Render, `BACKEND_ALLOWED_HOSTS` can be left blank for the default
+`onrender.com` backend host because the API uses Render's
+`RENDER_EXTERNAL_HOSTNAME` automatically. If you attach a custom API domain, set
+`BACKEND_ALLOWED_HOSTS` to that backend host, for example `api.yourdomain.com`.
 Set `RATE_LIMIT_STORAGE_URL` to a Redis URL in production.
 Set `SENTRY_DSN` to enable production error tracking and request tracing.
 

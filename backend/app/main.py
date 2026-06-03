@@ -95,10 +95,20 @@ logger.info(
     allowed_origins
 )
 
-if "*" not in settings.allowed_hosts:
+allowed_hosts = settings.allowed_hosts
+
+if settings.allowed_hosts_missing_in_production:
+    logger.critical(
+        "HIGH-SEVERITY CONFIG WARNING: BACKEND_ALLOWED_HOSTS is not configured "
+        "and no Render hostname was detected in production. API startup will "
+        "continue without TrustedHostMiddleware until explicit backend hosts "
+        "are configured."
+    )
+
+if allowed_hosts and "*" not in allowed_hosts:
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=settings.allowed_hosts
+        allowed_hosts=allowed_hosts
     )
 
 app.add_middleware(

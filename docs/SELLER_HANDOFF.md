@@ -25,7 +25,7 @@ Use this file when handing the project to a buyer, client, or deployment operato
 - `ENVIRONMENT=production` is set on the backend host.
 - `FRONTEND_PUBLIC_BASE_URL` points to the real frontend domain.
 - `BACKEND_CORS_ORIGINS` includes the production frontend domain.
-- `BACKEND_ALLOWED_HOSTS` includes the backend host, for example `api.yourdomain.com`.
+- `BACKEND_ALLOWED_HOSTS` includes the backend host when using a custom API domain, for example `api.yourdomain.com`. On Render's default `onrender.com` backend URL, it can be left blank because Render provides the host automatically.
 - Supabase service role key is stored only on the backend host.
 - Cloudinary upload folder and max image size are configured for client use.
 - A `super` admin account exists before client handoff.
