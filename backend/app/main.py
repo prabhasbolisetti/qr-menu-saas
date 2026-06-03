@@ -123,13 +123,15 @@ def health():
         "environment": settings.ENVIRONMENT
     }
 
-@app.get("/debug-env")
-def debug_env():
+if not settings.is_production:
 
-    import os
+    @app.get("/debug-env")
+    def debug_env():
 
-    return {
-        "ENVIRONMENT_os": os.getenv("ENVIRONMENT"),
-        "settings_ENVIRONMENT": settings.ENVIRONMENT,
-        "is_production": settings.is_production
-    }
+        import os
+
+        return {
+            "ENVIRONMENT_os": os.getenv("ENVIRONMENT"),
+            "settings_ENVIRONMENT": settings.ENVIRONMENT,
+            "is_production": settings.is_production
+        }

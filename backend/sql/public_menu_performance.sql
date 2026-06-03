@@ -15,14 +15,26 @@ where is_special = true
 create unique index concurrently if not exists restaurants_slug_unique
 on public.restaurants (slug);
 
+create index concurrently if not exists restaurants_public_slug_cover_idx
+on public.restaurants (slug)
+include (id, name, logo_url, city, is_active, is_open);
+
 create index concurrently if not exists categories_restaurant_display_order_idx
 on public.categories (restaurant_id, display_order, id);
+
+create index concurrently if not exists categories_public_menu_cover_idx
+on public.categories (restaurant_id, display_order, id)
+include (name, icon_emoji);
 
 create index concurrently if not exists menu_items_restaurant_available_display_order_idx
 on public.menu_items (restaurant_id, is_available, display_order, id);
 
 create index concurrently if not exists menu_items_restaurant_category_available_order_idx
 on public.menu_items (restaurant_id, category_id, is_available, display_order, id);
+
+create index concurrently if not exists menu_items_public_available_category_order_idx
+on public.menu_items (restaurant_id, category_id, display_order, id)
+where is_available = true;
 
 create or replace function public.get_public_menu(menu_slug text)
 returns jsonb
@@ -42,6 +54,32 @@ as $$
     from public.restaurants
     where slug = menu_slug
     limit 1
+  ),
+  items_by_category as (
+    select
+      mi.restaurant_id,
+      mi.category_id,
+      jsonb_agg(
+        jsonb_build_object(
+          'id', mi.id,
+          'name', mi.name,
+          'description', mi.description,
+          'price', mi.price,
+          'mrp_price', mi.mrp_price,
+          'image_url', mi.image_url,
+          'is_available', true,
+          'is_veg', coalesce(mi.is_veg, false),
+          'is_special', coalesce(mi.is_special, false),
+          'is_bestseller', coalesce(mi.is_bestseller, mi.is_special, false)
+        )
+        order by mi.display_order, mi.name
+      ) as items
+    from public.menu_items mi
+    join restaurant r
+      on r.id = mi.restaurant_id
+     and r.is_active is true
+    where mi.is_available = true
+    group by mi.restaurant_id, mi.category_id
   )
   select
     case
@@ -67,48 +105,24 @@ as $$
         'menu', coalesce(
           (
             select jsonb_agg(
-              jsonb_build_object(
-                'id', category_rows.id,
-                'name', category_rows.name,
-                'icon_emoji', category_rows.icon_emoji,
-                'items', category_rows.items
-              )
-              order by category_rows.display_order, category_rows.name
+              category_rows.category_payload
+              order by category_rows.display_order, category_rows.category_name
             )
             from (
               select
-                c.id,
-                c.name,
-                c.icon_emoji,
                 c.display_order,
-                items_by_category.items
+                c.name as category_name,
+                jsonb_build_object(
+                  'id', c.id,
+                  'name', c.name,
+                  'icon_emoji', c.icon_emoji,
+                  'items', items_by_category.items
+                ) as category_payload
               from public.categories c
-              cross join lateral (
-                select coalesce(
-                  jsonb_agg(
-                    jsonb_build_object(
-                      'id', mi.id,
-                      'name', mi.name,
-                      'description', mi.description,
-                      'price', mi.price,
-                      'mrp_price', mi.mrp_price,
-                      'image_url', mi.image_url,
-                      'is_available', coalesce(mi.is_available, true),
-                      'is_veg', coalesce(mi.is_veg, false),
-                      'is_special', coalesce(mi.is_special, false),
-                      'is_bestseller', coalesce(mi.is_bestseller, mi.is_special, false)
-                    )
-                    order by mi.display_order, mi.name
-                  ),
-                  '[]'::jsonb
-                ) as items
-                from public.menu_items mi
-                where mi.restaurant_id = r.id
-                  and mi.category_id = c.id
-                  and mi.is_available = true
-              ) items_by_category
+              join items_by_category
+                on items_by_category.category_id = c.id
+               and items_by_category.restaurant_id = c.restaurant_id
               where c.restaurant_id = r.id
-                and jsonb_array_length(items_by_category.items) > 0
             ) category_rows
           ),
           '[]'::jsonb
@@ -165,9 +179,12 @@ create or replace view public.qr_menu_required_index_audit as
 with required_indexes(index_name) as (
   values
     ('restaurants_slug_unique'),
+    ('restaurants_public_slug_cover_idx'),
     ('categories_restaurant_display_order_idx'),
+    ('categories_public_menu_cover_idx'),
     ('menu_items_restaurant_available_display_order_idx'),
-    ('menu_items_restaurant_category_available_order_idx')
+    ('menu_items_restaurant_category_available_order_idx'),
+    ('menu_items_public_available_category_order_idx')
 )
 select
   ri.index_name,

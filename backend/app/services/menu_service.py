@@ -1,5 +1,7 @@
 import logging
 import time
+import hashlib
+import json
 from collections import defaultdict
 from threading import Event, Lock, Thread
 from typing import Optional
@@ -19,6 +21,10 @@ PUBLIC_MENU_SINGLEFLIGHT_WAIT_SECONDS = (
 
 RESTAURANT_PUBLIC_COLUMNS = (
     "id,name,logo_url,city,is_active,is_open"
+)
+
+RESTAURANT_QR_COLUMNS = (
+    "id,slug"
 )
 
 RESTAURANT_PUBLIC_FALLBACK_COLUMNS = (
@@ -50,6 +56,25 @@ class PublicMenuLoadError(RuntimeError):
 
 class PublicMenuRpcUnavailable(RuntimeError):
     pass
+
+
+def build_public_menu_etag(menu_response):
+
+    return hashlib.sha256(
+        json.dumps(
+            menu_response,
+            sort_keys=True,
+            separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _cache_metadata(payload):
+
+    return {
+        "payload": payload,
+        "etag": build_public_menu_etag(payload)
+    }
 
 
 def _is_not_found_error(exc: Exception):
@@ -97,7 +122,7 @@ def _cache_entry(slug: str):
     if not cached:
         return None
 
-    expires_at, payload = cached
+    expires_at, metadata = cached
     stale_until = expires_at + PUBLIC_MENU_STALE_SECONDS
 
     if stale_until <= now:
@@ -105,13 +130,15 @@ def _cache_entry(slug: str):
         return None
 
     return {
-        "payload": payload,
+        "metadata": metadata,
+        "payload": metadata["payload"],
+        "etag": metadata["etag"],
         "is_fresh": expires_at > now,
         "is_stale": expires_at <= now < stale_until
     }
 
 
-def _cache_get(slug: str, allow_stale: bool = False):
+def _cache_get_metadata(slug: str, allow_stale: bool = False):
 
     with _public_menu_cache_lock:
         cached = _cache_entry(slug)
@@ -120,21 +147,37 @@ def _cache_get(slug: str, allow_stale: bool = False):
             return None
 
         if cached["is_fresh"] or allow_stale:
-            return cached["payload"]
+            return cached["metadata"]
 
         return None
+
+
+def _cache_get(slug: str, allow_stale: bool = False):
+
+    metadata = _cache_get_metadata(
+        slug,
+        allow_stale=allow_stale
+    )
+
+    return metadata["payload"] if metadata else None
 
 
 def _cache_set(slug: str, payload):
 
     expires_at = time.monotonic() + PUBLIC_MENU_CACHE_TTL_SECONDS
+    metadata = _cache_metadata(payload)
+
+    if PUBLIC_MENU_CACHE_MAX_SIZE <= 0:
+        return metadata
 
     with _public_menu_cache_lock:
         if len(_public_menu_cache) >= PUBLIC_MENU_CACHE_MAX_SIZE:
             oldest_slug = next(iter(_public_menu_cache))
             _public_menu_cache.pop(oldest_slug, None)
 
-        _public_menu_cache[slug] = (expires_at, payload)
+        _public_menu_cache[slug] = (expires_at, metadata)
+
+    return metadata
 
 
 def _begin_refresh(slug: str):
@@ -201,8 +244,8 @@ def clear_public_menu_cache(restaurant_id: Optional[str] = None):
 
         stale_slugs = [
             slug
-            for slug, (_, payload) in _public_menu_cache.items()
-            if payload.get("restaurant", {}).get("id") == restaurant_id
+            for slug, (_, metadata) in _public_menu_cache.items()
+            if metadata["payload"].get("restaurant", {}).get("id") == restaurant_id
         ]
 
         for slug in stale_slugs:
@@ -215,7 +258,7 @@ def get_restaurant_by_slug(slug: str):
         try:
             response = (
                 supabase.table("restaurants")
-                .select("*")
+                .select(RESTAURANT_QR_COLUMNS)
                 .eq("slug", slug)
                 .limit(1)
                 .execute()
@@ -422,24 +465,24 @@ def _load_public_menu_by_slug_uncached(slug: str):
     )
 
 
-def get_public_menu_by_slug(slug: str):
+def get_public_menu_metadata_by_slug(slug: str):
 
-    stale_payload = None
+    stale_metadata = None
 
     with _public_menu_cache_lock:
         cached = _cache_entry(slug)
 
         if cached and cached["is_fresh"]:
-            return cached["payload"]
+            return cached["metadata"]
 
         if cached and cached["is_stale"]:
-            stale_payload = cached["payload"]
+            stale_metadata = cached["metadata"]
 
         active_refresh = _public_menu_refreshes.get(slug)
 
-    if stale_payload is not None:
+    if stale_metadata is not None:
         _refresh_public_menu_cache_in_background(slug)
-        return stale_payload
+        return stale_metadata
 
     if active_refresh:
         active_refresh.wait(PUBLIC_MENU_SINGLEFLIGHT_WAIT_SECONDS)
@@ -448,7 +491,7 @@ def get_public_menu_by_slug(slug: str):
             cached = _cache_entry(slug)
 
             if cached:
-                return cached["payload"]
+                return cached["metadata"]
 
         raise PublicMenuLoadError("Public menu refresh timed out")
 
@@ -462,7 +505,7 @@ def get_public_menu_by_slug(slug: str):
                 cached = _cache_entry(slug)
 
                 if cached:
-                    return cached["payload"]
+                    return cached["metadata"]
 
             raise PublicMenuLoadError("Public menu refresh timed out")
 
@@ -470,26 +513,26 @@ def get_public_menu_by_slug(slug: str):
             response = _load_public_menu_by_slug_uncached(slug)
 
             if response and not response.get("inactive"):
-                _cache_set(slug, response)
+                return _cache_set(slug, response)
 
-            return response
+            return _cache_metadata(response) if response else None
         finally:
             _finish_refresh(slug, refresh)
     except RestaurantLookupError:
         raise
     except Exception as exc:
-        stale_response = _cache_get(
+        stale_metadata = _cache_get_metadata(
             slug,
             allow_stale=True
         )
 
-        if stale_response:
+        if stale_metadata:
             logger.warning(
                 "Serving stale public menu cache slug=%s error=%s",
                 slug,
                 exc
             )
-            return stale_response
+            return stale_metadata
 
         logger.error(
             "Failed to load public menu slug=%s error=%s",
@@ -498,6 +541,13 @@ def get_public_menu_by_slug(slug: str):
             exc_info=True
         )
         raise PublicMenuLoadError("Public menu load failed") from exc
+
+
+def get_public_menu_by_slug(slug: str):
+
+    metadata = get_public_menu_metadata_by_slug(slug)
+
+    return metadata["payload"] if metadata else None
 
 
 def build_menu_response(

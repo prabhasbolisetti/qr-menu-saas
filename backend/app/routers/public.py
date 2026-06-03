@@ -1,12 +1,10 @@
 import logging
-import hashlib
-import json
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from app.services.menu_service import (
     get_restaurant_by_slug,
-    get_public_menu_by_slug,
+    get_public_menu_metadata_by_slug,
     PublicMenuLoadError,
     RestaurantLookupError
 )
@@ -50,7 +48,7 @@ def get_menu_qr(slug: str):
 def get_menu(slug: str, request: Request, response: Response):
 
     try:
-        menu_response = get_public_menu_by_slug(slug)
+        menu_metadata = get_public_menu_metadata_by_slug(slug)
     except (PublicMenuLoadError, RestaurantLookupError) as exc:
         logger.error(
             "Failed to load public menu restaurant slug=%s error=%s",
@@ -62,6 +60,8 @@ def get_menu(slug: str, request: Request, response: Response):
             status_code=503,
             detail="Menu service temporarily unavailable"
         ) from exc
+
+    menu_response = menu_metadata["payload"] if menu_metadata else None
 
     if not menu_response:
         raise HTTPException(
@@ -75,13 +75,7 @@ def get_menu(slug: str, request: Request, response: Response):
             detail="Restaurant inactive"
         )
 
-    etag = hashlib.sha256(
-        json.dumps(
-            menu_response,
-            sort_keys=True,
-            separators=(",", ":")
-        ).encode("utf-8")
-    ).hexdigest()
+    etag = menu_metadata["etag"]
 
     response.headers["Cache-Control"] = (
         "public, max-age=60, stale-while-revalidate=300, stale-if-error=900"
