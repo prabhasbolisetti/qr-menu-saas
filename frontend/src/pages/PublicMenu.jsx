@@ -1,19 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
-import api, { DEFAULT_API_BASE_URL } from "../api/axios";
+import { API_BASE_URL_CANDIDATES } from "../api/axios";
 import CategorySection from "../components/CategorySection";
+import MenuItemCard from "../components/MenuItemCard";
 
 const MENU_FETCH_RETRIES = 2;
 const MENU_RETRY_DELAY_MS = 900;
+
+const MENU_FILTERS = [
+  { id: "all", label: "All dishes" },
+  { id: "veg", label: "Veg" },
+  { id: "specials", label: "Specials" },
+];
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function shouldRetryMenuFetch(error, attempt) {
-  if (attempt >= MENU_FETCH_RETRIES) return false;
-
+function isRecoverableMenuError(error) {
   const status = error?.response?.status;
 
   return (
@@ -24,9 +29,23 @@ function shouldRetryMenuFetch(error, attempt) {
   );
 }
 
+function shouldRetryMenuFetch(error, attempt) {
+  return attempt < MENU_FETCH_RETRIES && isRecoverableMenuError(error);
+}
+
 function getMenuErrorMessage(error) {
-  if (error?.response?.status === 503) {
-    return "Menu service is waking up. Please try again.";
+  const status = error?.response?.status;
+
+  if (status === 403) {
+    return "This restaurant is not accepting public menu views right now.";
+  }
+
+  if (status === 404) {
+    return "This QR menu link does not match an active restaurant.";
+  }
+
+  if (status === 503) {
+    return "The menu is temporarily syncing. Please retry in a moment.";
   }
 
   if (error?.userMessage) {
@@ -37,24 +56,49 @@ function getMenuErrorMessage(error) {
 }
 
 async function fetchPublicMenu(slug) {
-  const encodedSlug = encodeURIComponent(slug);
+  const encodedSlug = encodeURIComponent(slug || "");
+  let lastError = null;
 
-  try {
-    return await api.get(`/menu/${encodedSlug}`);
-  } catch (error) {
-    const primaryBaseUrl = api.defaults.baseURL?.replace(/\/+$/, "");
-
-    if (!error.response && primaryBaseUrl !== DEFAULT_API_BASE_URL) {
-      return axios.get(
-        `${DEFAULT_API_BASE_URL}/menu/${encodedSlug}`,
+  for (const baseUrl of API_BASE_URL_CANDIDATES) {
+    try {
+      return await axios.get(
+        `${baseUrl}/menu/${encodedSlug}`,
         {
           timeout: 30000,
         }
       );
-    }
+    } catch (error) {
+      lastError = error;
 
-    throw error;
+      if (!isRecoverableMenuError(error)) {
+        throw error;
+      }
+    }
   }
+
+  throw lastError;
+}
+
+function itemMatchesFilter(item, activeFilter) {
+  if (activeFilter === "veg") return Boolean(item.is_veg);
+  if (activeFilter === "specials") return Boolean(item.is_special || item.is_bestseller);
+
+  return true;
+}
+
+function itemMatchesSearch(item, query) {
+  if (!query) return true;
+
+  const searchable = `${item.name || ""} ${item.description || ""}`.toLowerCase();
+
+  return searchable.includes(query);
+}
+
+function getFilterEmptyCopy(activeFilter) {
+  if (activeFilter === "veg") return "No vegetarian dishes match this view.";
+  if (activeFilter === "specials") return "No specials are visible right now.";
+
+  return "No matching dishes";
 }
 
 export default function PublicMenu() {
@@ -65,6 +109,8 @@ export default function PublicMenu() {
   const [logoFailed, setLogoFailed] = useState(false);
   const [activeCategory, setActiveCategory] = useState(0);
   const [searchTerm, setSearchTerm] = useState("");
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [retrySeed, setRetrySeed] = useState(0);
   const categoryRefs = useRef([]);
 
   useEffect(() => {
@@ -75,6 +121,8 @@ export default function PublicMenu() {
       setLoading(true);
       setActiveCategory(0);
       setSearchTerm("");
+      setActiveFilter("all");
+      categoryRefs.current = [];
 
       for (let attempt = 0; attempt <= MENU_FETCH_RETRIES; attempt += 1) {
         try {
@@ -85,17 +133,17 @@ export default function PublicMenu() {
             setLoading(false);
           }
           return;
-        } catch (error) {
-          console.error("Failed to load menu:", error);
+        } catch (fetchError) {
+          console.error("Failed to load menu:", fetchError);
 
-          if (shouldRetryMenuFetch(error, attempt)) {
+          if (shouldRetryMenuFetch(fetchError, attempt)) {
             await wait(MENU_RETRY_DELAY_MS * (attempt + 1));
             if (!mounted) return;
             continue;
           }
 
           if (mounted) {
-            setError(getMenuErrorMessage(error));
+            setError(getMenuErrorMessage(fetchError));
             setMenuData(null);
             setLoading(false);
           }
@@ -108,10 +156,47 @@ export default function PublicMenu() {
     return () => {
       mounted = false;
     };
-  }, [slug]);
+  }, [slug, retrySeed]);
+
+  const filteredMenu = useMemo(() => {
+    const menu = menuData?.menu || [];
+    const query = searchTerm.trim().toLowerCase();
+
+    return menu
+      .map((category) => ({
+        ...category,
+        items: (category.items || []).filter((item) => (
+          itemMatchesSearch(item, query) && itemMatchesFilter(item, activeFilter)
+        )),
+      }))
+      .filter((category) => category.items.length > 0);
+  }, [activeFilter, menuData, searchTerm]);
+
+  const totalItems = useMemo(
+    () => (menuData?.menu || []).reduce((count, category) => count + (category.items || []).length, 0),
+    [menuData]
+  );
+
+  const visibleItems = useMemo(
+    () => filteredMenu.reduce((count, category) => count + (category.items || []).length, 0),
+    [filteredMenu]
+  );
+
+  const featuredItems = useMemo(
+    () => (menuData?.menu || [])
+      .flatMap((category) => (
+        (category.items || []).map((item) => ({
+          ...item,
+          category_name: category.name,
+        }))
+      ))
+      .filter((item) => item.is_special || item.is_bestseller)
+      .slice(0, 4),
+    [menuData]
+  );
 
   useEffect(() => {
-    if (!menuData?.menu?.length) return undefined;
+    if (!filteredMenu.length) return undefined;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -124,7 +209,7 @@ export default function PublicMenu() {
         }
       },
       {
-        rootMargin: "-150px 0px -55% 0px",
+        rootMargin: "-160px 0px -55% 0px",
         threshold: [0.15, 0.35, 0.6],
       }
     );
@@ -134,42 +219,30 @@ export default function PublicMenu() {
     });
 
     return () => observer.disconnect();
-  }, [menuData]);
+  }, [filteredMenu]);
 
-  const filteredMenu = useMemo(() => {
-    const menu = menuData?.menu || [];
-    const query = searchTerm.trim().toLowerCase();
+  const scrollToCategory = (index) => {
+    setActiveCategory(index);
+    categoryRefs.current[index]?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
 
-    if (!query) return menu;
-
-    return menu
-      .map((category) => ({
-        ...category,
-        items: (category.items || []).filter((item) => {
-          const searchable = `${item.name || ""} ${item.description || ""}`.toLowerCase();
-          return searchable.includes(query);
-        }),
-      }))
-      .filter((category) => category.items.length > 0);
-  }, [menuData, searchTerm]);
-
-  const totalItems = useMemo(
-    () => (menuData?.menu || []).reduce((count, category) => count + (category.items || []).length, 0),
-    [menuData]
-  );
-
-  const visibleItems = useMemo(
-    () => filteredMenu.reduce((count, category) => count + (category.items || []).length, 0),
-    [filteredMenu]
-  );
+  const resetFilters = () => {
+    setSearchTerm("");
+    setActiveFilter("all");
+    setActiveCategory(0);
+    categoryRefs.current = [];
+  };
 
   if (loading) {
     return (
       <div className="min-h-screen bg-[#f6f7f9]">
-        <div className="sticky top-0 z-20 border-b border-zinc-200 bg-white/95 px-4 py-4 backdrop-blur">
-          <div className="max-w-3xl mx-auto">
+        <div className="border-b border-zinc-200 bg-white px-4 py-5">
+          <div className="mx-auto max-w-3xl">
             <div className="flex items-center gap-3">
-              <div className="h-14 w-14 rounded-lg bg-zinc-200 animate-pulse" />
+              <div className="h-16 w-16 rounded-lg bg-zinc-200 animate-pulse" />
               <div className="flex-1">
                 <div className="h-6 w-1/2 rounded bg-zinc-200 animate-pulse" />
                 <div className="mt-2 h-4 w-1/3 rounded bg-zinc-200 animate-pulse" />
@@ -178,27 +251,24 @@ export default function PublicMenu() {
           </div>
         </div>
 
-        <div className="border-b border-zinc-200 bg-white px-4 py-3">
-          <div className="mx-auto max-w-3xl">
+        <div className="sticky top-0 z-20 border-b border-zinc-200 bg-white px-4 py-3">
+          <div className="mx-auto max-w-3xl space-y-3">
             <div className="h-11 rounded-lg bg-zinc-200 animate-pulse" />
-          </div>
-        </div>
-
-        <div className="sticky top-[89px] z-10 border-b border-zinc-200 bg-white px-4 py-3">
-          <div className="mx-auto flex max-w-3xl gap-2 overflow-hidden">
-            {[1, 2, 3].map((item) => (
-              <div key={item} className="h-9 w-24 flex-shrink-0 rounded-full bg-zinc-200 animate-pulse" />
-            ))}
+            <div className="flex gap-2 overflow-hidden">
+              {[1, 2, 3].map((item) => (
+                <div key={item} className="h-9 w-24 flex-shrink-0 rounded-full bg-zinc-200 animate-pulse" />
+              ))}
+            </div>
           </div>
         </div>
 
         <div className="mx-auto max-w-3xl space-y-4 p-4">
-          {[1, 2, 3].map((s) => (
-            <div key={s} className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+          {[1, 2, 3].map((section) => (
+            <div key={section} className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
               <div className="mb-3 h-6 w-1/2 rounded bg-zinc-200 animate-pulse" />
               <div className="space-y-4">
-                {[1, 2].map((i) => (
-                  <div key={i} className="flex gap-3">
+                {[1, 2].map((item) => (
+                  <div key={item} className="flex gap-3">
                     <div className="flex-1">
                       <div className="mb-2 h-4 w-3/4 rounded bg-zinc-200 animate-pulse" />
                       <div className="mb-2 h-3 w-1/3 rounded bg-zinc-200 animate-pulse" />
@@ -218,58 +288,65 @@ export default function PublicMenu() {
   if (!menuData || error) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#f6f7f9] p-4">
-        <div className="w-full max-w-sm rounded-lg border border-zinc-200 bg-white p-8 text-center shadow-sm">
-          <p className="text-lg font-semibold text-zinc-950">{error || "Menu not found"}</p>
-          <p className="mt-2 text-sm text-zinc-500">Please check the restaurant link or try again later.</p>
+        <div className="w-full max-w-sm rounded-lg border border-zinc-200 bg-white p-6 text-center shadow-sm">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-red-50 text-lg font-bold text-red-700">
+            !
+          </div>
+          <p className="mt-4 text-lg font-semibold text-zinc-950">{error || "Menu not found"}</p>
+          <p className="mt-2 text-sm leading-5 text-zinc-500">
+            Try again from this QR. If it keeps failing, ask the restaurant staff to refresh the menu link.
+          </p>
+          <button
+            type="button"
+            onClick={() => setRetrySeed((current) => current + 1)}
+            className="mt-5 h-10 rounded-lg bg-zinc-950 px-4 text-sm font-semibold text-white hover:bg-zinc-800"
+          >
+            Retry menu
+          </button>
         </div>
       </div>
     );
   }
 
-  const scrollToCategory = (index) => {
-    setActiveCategory(index);
-    if (categoryRefs.current[index]) {
-      categoryRefs.current[index].scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }
-  };
-
   return (
     <div className="min-h-screen bg-[#f6f7f9] text-zinc-950">
-      <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto max-w-3xl px-4 py-4">
-          <div className="flex items-center gap-3">
+      <header className="border-b border-zinc-200 bg-white">
+        <div className="mx-auto max-w-3xl px-4 py-5">
+          <div className="flex items-start gap-3">
             {menuData.restaurant.logo_url && !logoFailed ? (
               <img
                 src={menuData.restaurant.logo_url}
                 alt={menuData.restaurant.name}
                 referrerPolicy="no-referrer"
                 onError={() => setLogoFailed(true)}
-                className="h-14 w-14 rounded-lg border border-zinc-200 object-cover shadow-sm"
+                className="h-16 w-16 rounded-lg border border-zinc-200 object-cover shadow-sm"
               />
             ) : (
-              <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-950 text-lg font-bold text-white shadow-sm">
+              <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-950 text-xl font-bold text-white shadow-sm">
                 {menuData.restaurant.name?.[0] || "R"}
               </div>
             )}
+
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-xl font-bold text-zinc-950">{menuData.restaurant.name}</h1>
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-medium text-zinc-500">
-                <span>{menuData.restaurant.city || "Menu"}</span>
-                <span className="h-1 w-1 rounded-full bg-zinc-300" />
-                <span>{totalItems} {totalItems === 1 ? "item" : "items"}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="truncate text-2xl font-bold text-zinc-950">{menuData.restaurant.name}</h1>
+                <span
+                  className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                    menuData.restaurant.is_open === false
+                      ? "bg-red-50 text-red-700"
+                      : "bg-emerald-50 text-emerald-700"
+                  }`}
+                >
+                  {menuData.restaurant.is_open === false ? "Closed" : "Open now"}
+                </span>
               </div>
-              <span
-                className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-                  menuData.restaurant.is_open === false
-                    ? "bg-red-50 text-red-700"
-                    : "bg-emerald-50 text-emerald-700"
-                }`}
-              >
-                {menuData.restaurant.is_open === false ? "Closed" : "Open now"}
-              </span>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-medium text-zinc-500">
+                <span>{menuData.restaurant.city || "Digital menu"}</span>
+                <span className="h-1 w-1 rounded-full bg-zinc-300" />
+                <span>{totalItems} {totalItems === 1 ? "dish" : "dishes"}</span>
+                <span className="h-1 w-1 rounded-full bg-zinc-300" />
+                <span>Live QR menu</span>
+              </div>
             </div>
           </div>
         </div>
@@ -283,7 +360,7 @@ export default function PublicMenu() {
         </div>
       )}
 
-      <div className="border-b border-zinc-200 bg-white px-4 py-3">
+      <section className="sticky top-0 z-20 border-b border-zinc-200 bg-white/95 px-4 py-3 backdrop-blur">
         <div className="mx-auto max-w-3xl">
           <div className="relative">
             <svg
@@ -306,32 +383,62 @@ export default function PublicMenu() {
                 categoryRefs.current = [];
               }}
               placeholder="Search dishes"
-              className="h-11 w-full rounded-lg border border-zinc-200 bg-zinc-50 pl-10 pr-4 text-sm font-medium text-zinc-950 outline-none transition focus:border-zinc-400 focus:bg-white"
+              className="h-11 w-full rounded-lg border border-zinc-200 bg-zinc-50 pl-10 pr-10 text-sm font-medium text-zinc-950 outline-none transition focus:border-zinc-400 focus:bg-white"
             />
-          </div>
-        </div>
-      </div>
-
-      {filteredMenu.length > 0 && (
-        <div className="sticky top-[89px] z-10 overflow-x-auto border-b border-zinc-200 bg-white/95 backdrop-blur">
-          <div className="mx-auto flex max-w-3xl gap-2 px-4">
-            {filteredMenu.map((category, idx) => (
+            {searchTerm && (
               <button
-                key={category.id}
-                onClick={() => scrollToCategory(idx)}
-                className={`whitespace-nowrap border-b-2 px-3 py-3 text-sm font-semibold transition-colors ${
-                  activeCategory === idx
-                    ? "border-zinc-950 text-zinc-950"
-                    : "border-transparent text-zinc-500 hover:text-zinc-950"
+                type="button"
+                onClick={() => setSearchTerm("")}
+                className="absolute right-2 top-1/2 h-8 w-8 -translate-y-1/2 rounded-lg text-sm font-bold text-zinc-500 hover:bg-zinc-100"
+                aria-label="Clear search"
+              >
+                x
+              </button>
+            )}
+          </div>
+
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {MENU_FILTERS.map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => {
+                  setActiveFilter(filter.id);
+                  setActiveCategory(0);
+                  categoryRefs.current = [];
+                }}
+                className={`h-9 flex-shrink-0 rounded-full border px-3 text-sm font-semibold transition ${
+                  activeFilter === filter.id
+                    ? "border-zinc-950 bg-zinc-950 text-white"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-400"
                 }`}
               >
-                {category.icon_emoji && <span className="mr-1">{category.icon_emoji}</span>}
-                {category.name}
+                {filter.label}
               </button>
             ))}
           </div>
+
+          {filteredMenu.length > 0 && (
+            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+              {filteredMenu.map((category, idx) => (
+                <button
+                  key={category.id}
+                  type="button"
+                  onClick={() => scrollToCategory(idx)}
+                  className={`h-9 flex-shrink-0 rounded-full border px-3 text-sm font-semibold transition ${
+                    activeCategory === idx
+                      ? "border-orange-600 bg-orange-50 text-orange-800"
+                      : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-400 hover:text-zinc-950"
+                  }`}
+                >
+                  {category.icon_emoji && <span className="mr-1">{category.icon_emoji}</span>}
+                  {category.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </section>
 
       <main className="mx-auto max-w-3xl px-4 py-5">
         {menuData.menu.length === 0 ? (
@@ -341,29 +448,49 @@ export default function PublicMenu() {
           </div>
         ) : filteredMenu.length === 0 ? (
           <div className="rounded-lg border border-zinc-200 bg-white p-8 text-center shadow-sm">
-            <p className="font-semibold text-zinc-950">No matching dishes</p>
-            <p className="mt-2 text-sm text-zinc-500">No results for "{searchTerm.trim()}"</p>
+            <p className="font-semibold text-zinc-950">{getFilterEmptyCopy(activeFilter)}</p>
+            {searchTerm.trim() && (
+              <p className="mt-2 text-sm text-zinc-500">No results for "{searchTerm.trim()}"</p>
+            )}
             <button
               type="button"
-              onClick={() => setSearchTerm("")}
-              className="mt-4 rounded-full bg-zinc-950 px-4 py-2 text-sm font-semibold text-white"
+              onClick={resetFilters}
+              className="mt-4 h-10 rounded-lg bg-zinc-950 px-4 text-sm font-semibold text-white hover:bg-zinc-800"
             >
-              Clear search
+              Show all dishes
             </button>
           </div>
         ) : (
           <div className="space-y-5 pb-10">
-            {searchTerm.trim() && (
+            {(searchTerm.trim() || activeFilter !== "all") && (
               <p className="text-sm font-medium text-zinc-500">
-                {visibleItems} {visibleItems === 1 ? "result" : "results"} for "{searchTerm.trim()}"
+                Showing {visibleItems} of {totalItems} {totalItems === 1 ? "dish" : "dishes"}
               </p>
             )}
+
+            {featuredItems.length > 0 && !searchTerm.trim() && activeFilter === "all" && (
+              <section className="rounded-lg border border-orange-100 bg-orange-50/60 p-3">
+                <div className="mb-1 flex items-center justify-between px-1">
+                  <h2 className="text-sm font-bold text-orange-950">Featured picks</h2>
+                  <span className="text-xs font-semibold text-orange-700">{featuredItems.length} highlighted</span>
+                </div>
+                <div className="rounded-lg border border-orange-100 bg-white px-3">
+                  {featuredItems.map((item) => (
+                    <MenuItemCard
+                      key={`featured-${item.id}`}
+                      item={item}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
             {filteredMenu.map((category, idx) => (
               <section
                 key={category.id}
                 ref={(el) => (categoryRefs.current[idx] = el)}
                 data-index={idx}
-                className="scroll-mt-36"
+                className="scroll-mt-44"
               >
                 <CategorySection category={category} />
               </section>

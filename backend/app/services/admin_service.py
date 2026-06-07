@@ -53,12 +53,69 @@ def _restore_payload():
 def _is_missing_bestseller_column_error(exc: Exception):
 
     error_text = str(exc)
+    normalized_error_text = error_text.lower()
 
     return (
         "is_bestseller" in error_text
         and "menu_items" in error_text
-        and ("PGRST204" in error_text or "schema cache" in error_text)
+        and (
+            "PGRST204" in error_text
+            or "schema cache" in error_text
+            or "42703" in error_text
+            or "does not exist" in normalized_error_text
+        )
     )
+
+
+def _is_missing_column_error(exc: Exception, column_name: str):
+
+    error_text = str(exc).lower()
+
+    return (
+        column_name.lower() in error_text
+        and (
+            "pgrst204" in error_text
+            or "schema cache" in error_text
+            or "42703" in error_text
+            or "does not exist" in error_text
+        )
+    )
+
+
+def _with_optional_soft_delete_filter(query, include_deleted_filter: bool):
+
+    if include_deleted_filter:
+        return query.is_("deleted_at", "null")
+
+    return query
+
+
+def _execute_with_optional_soft_delete_filter(
+    table_name: str,
+    operation: str,
+    build_query
+):
+
+    include_deleted_filter = True
+
+    while True:
+        try:
+            return build_query(include_deleted_filter).execute()
+        except Exception as exc:
+            if (
+                include_deleted_filter
+                and _is_missing_column_error(exc, "deleted_at")
+            ):
+                logger.warning(
+                    "%s.deleted_at is missing; retrying admin %s without "
+                    "soft-delete filter",
+                    table_name,
+                    operation
+                )
+                include_deleted_filter = False
+                continue
+
+            raise
 
 
 def _menu_item_payload_without_optional_columns(payload: dict):
@@ -97,41 +154,47 @@ def _insert_menu_item_with_schema_fallback(payload: dict):
 
 def _update_menu_item_with_schema_fallback(item_id: str, payload: dict):
 
-    try:
-        response = (
-            supabase.table("menu_items")
-            .update(payload)
-            .eq("id", item_id)
-            .is_("deleted_at", "null")
-            .execute()
+    def execute_update(next_payload: dict):
+
+        if not next_payload:
+            return _execute_with_optional_soft_delete_filter(
+                "menu_items",
+                "menu item select",
+                lambda include_deleted_filter: _with_optional_soft_delete_filter(
+                    supabase.table("menu_items")
+                    .select("*")
+                    .eq("id", item_id),
+                    include_deleted_filter
+                )
+            )
+
+        return _execute_with_optional_soft_delete_filter(
+            "menu_items",
+            "menu item update",
+            lambda include_deleted_filter: _with_optional_soft_delete_filter(
+                supabase.table("menu_items")
+                .update(next_payload)
+                .eq("id", item_id),
+                include_deleted_filter
+            )
         )
+
+    try:
+        response = execute_update(payload)
     except Exception as exc:
         if not _is_missing_bestseller_column_error(exc):
             raise
 
         safe_payload = _menu_item_payload_without_optional_columns(payload)
 
-        if not safe_payload:
-            response = (
-                supabase.table("menu_items")
-                .select("*")
-                .eq("id", item_id)
-                .is_("deleted_at", "null")
-                .execute()
-            )
-        else:
+        if safe_payload:
             logger.warning(
                 "menu_items.is_bestseller is missing in Supabase; retrying update "
                 "without that optional column. Run backend/sql/production_readiness.sql "
                 "to enable bestseller persistence."
             )
-            response = (
-                supabase.table("menu_items")
-                .update(safe_payload)
-                .eq("id", item_id)
-                .is_("deleted_at", "null")
-                .execute()
-            )
+
+        response = execute_update(safe_payload)
 
     return response
 
@@ -297,13 +360,15 @@ def onboard_restaurant(data, actor=None):
 def get_restaurant_by_id(restaurant_id: str):
 
     try:
-        response = (
-            supabase.table("restaurants")
-            .select("*")
-            .eq("id", restaurant_id)
-            .is_("deleted_at", "null")
-            .single()
-            .execute()
+        response = _execute_with_optional_soft_delete_filter(
+            "restaurants",
+            "restaurant lookup",
+            lambda include_deleted_filter: _with_optional_soft_delete_filter(
+                supabase.table("restaurants")
+                .select("*")
+                .eq("id", restaurant_id),
+                include_deleted_filter
+            ).single()
         )
     except Exception as exc:
         logger.warning(
@@ -323,14 +388,17 @@ def update_restaurant_open_state(
 ):
 
     try:
-        response = (
-            supabase.table("restaurants")
-            .update({
-                "is_open": is_open
-            })
-            .eq("id", restaurant_id)
-            .is_("deleted_at", "null")
-            .execute()
+        response = _execute_with_optional_soft_delete_filter(
+            "restaurants",
+            "restaurant open-state update",
+            lambda include_deleted_filter: _with_optional_soft_delete_filter(
+                supabase.table("restaurants")
+                .update({
+                    "is_open": is_open
+                })
+                .eq("id", restaurant_id),
+                include_deleted_filter
+            )
         )
     except Exception as exc:
         logger.error(
@@ -409,13 +477,15 @@ def create_category(data, actor=None):
 def get_categories(restaurant_id: str):
 
     try:
-        response = (
-            supabase.table("categories")
-            .select("*")
-            .eq("restaurant_id", restaurant_id)
-            .is_("deleted_at", "null")
-            .order("display_order")
-            .execute()
+        response = _execute_with_optional_soft_delete_filter(
+            "categories",
+            "category lookup",
+            lambda include_deleted_filter: _with_optional_soft_delete_filter(
+                supabase.table("categories")
+                .select("*")
+                .eq("restaurant_id", restaurant_id),
+                include_deleted_filter
+            ).order("display_order")
         )
     except Exception as exc:
         logger.error(
@@ -435,14 +505,16 @@ def get_category_for_restaurant(
 ):
 
     try:
-        response = (
-            supabase.table("categories")
-            .select("*")
-            .eq("restaurant_id", restaurant_id)
-            .eq("id", category_id)
-            .is_("deleted_at", "null")
-            .single()
-            .execute()
+        response = _execute_with_optional_soft_delete_filter(
+            "categories",
+            "category lookup",
+            lambda include_deleted_filter: _with_optional_soft_delete_filter(
+                supabase.table("categories")
+                .select("*")
+                .eq("restaurant_id", restaurant_id)
+                .eq("id", category_id),
+                include_deleted_filter
+            ).single()
         )
     except Exception as exc:
         logger.warning(
@@ -459,13 +531,15 @@ def get_category_for_restaurant(
 def get_menu_item_by_id(item_id: str):
 
     try:
-        response = (
-            supabase.table("menu_items")
-            .select("*")
-            .eq("id", item_id)
-            .is_("deleted_at", "null")
-            .single()
-            .execute()
+        response = _execute_with_optional_soft_delete_filter(
+            "menu_items",
+            "menu item lookup",
+            lambda include_deleted_filter: _with_optional_soft_delete_filter(
+                supabase.table("menu_items")
+                .select("*")
+                .eq("id", item_id),
+                include_deleted_filter
+            ).single()
         )
     except Exception as exc:
         logger.warning(
@@ -524,12 +598,15 @@ def update_category(category_id: str, data, actor=None):
 
     update_data = _model_update_payload(data)
 
-    response = (
-        supabase.table("categories")
-        .update(update_data)
-        .eq("id", category_id)
-        .is_("deleted_at", "null")
-        .execute()
+    response = _execute_with_optional_soft_delete_filter(
+        "categories",
+        "category update",
+        lambda include_deleted_filter: _with_optional_soft_delete_filter(
+            supabase.table("categories")
+            .update(update_data)
+            .eq("id", category_id),
+            include_deleted_filter
+        )
     )
 
     category = _single_response_data(response, "category after update")
@@ -746,12 +823,14 @@ def restore_menu_item(item_id: str, actor=None):
 
 def get_all_restaurants():
 
-    response = (
-        supabase.table("restaurants")
-        .select("*")
-        .is_("deleted_at", "null")
-        .order("created_at")
-        .execute()
+    response = _execute_with_optional_soft_delete_filter(
+        "restaurants",
+        "restaurant list",
+        lambda include_deleted_filter: _with_optional_soft_delete_filter(
+            supabase.table("restaurants")
+            .select("*"),
+            include_deleted_filter
+        ).order("created_at")
     )
 
     return response.data

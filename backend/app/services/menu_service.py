@@ -37,6 +37,11 @@ CATEGORY_PUBLIC_COLUMNS = (
 
 MENU_ITEM_PUBLIC_COLUMNS = (
     "id,category_id,name,description,price,mrp_price,image_url,"
+    "is_available,is_veg,is_special,is_bestseller,display_order"
+)
+
+MENU_ITEM_PUBLIC_FALLBACK_COLUMNS = (
+    "id,category_id,name,description,price,mrp_price,image_url,"
     "is_available,is_veg,is_special,display_order"
 )
 
@@ -90,11 +95,17 @@ def _is_not_found_error(exc: Exception):
 
 def _is_missing_column_error(exc: Exception, column_name: str):
 
-    error_text = str(exc)
+    error_text = str(exc).lower()
+    normalized_column_name = column_name.lower()
 
     return (
-        column_name in error_text
-        and ("PGRST204" in error_text or "schema cache" in error_text)
+        normalized_column_name in error_text
+        and (
+            "pgrst204" in error_text
+            or "schema cache" in error_text
+            or "42703" in error_text
+            or "does not exist" in error_text
+        )
     )
 
 
@@ -254,19 +265,39 @@ def clear_public_menu_cache(restaurant_id: Optional[str] = None):
 
 def get_restaurant_by_slug(slug: str):
 
-    for attempt in range(2):
+    attempt = 0
+    include_deleted_filter = True
+
+    while attempt < 2:
         try:
-            response = (
+            query = (
                 supabase.table("restaurants")
                 .select(RESTAURANT_QR_COLUMNS)
                 .eq("slug", slug)
-                .is_("deleted_at", "null")
+            )
+
+            if include_deleted_filter:
+                query = query.is_("deleted_at", "null")
+
+            response = (
+                query
                 .limit(1)
                 .execute()
             )
         except Exception as exc:
             if _is_not_found_error(exc):
                 return None
+
+            if (
+                include_deleted_filter
+                and _is_missing_column_error(exc, "deleted_at")
+            ):
+                logger.warning(
+                    "restaurants.deleted_at is missing; retrying QR "
+                    "restaurant lookup without soft-delete filter"
+                )
+                include_deleted_filter = False
+                continue
 
             if attempt == 0:
                 logger.warning(
@@ -275,6 +306,7 @@ def get_restaurant_by_slug(slug: str):
                     exc
                 )
                 time.sleep(0.2)
+                attempt += 1
                 continue
 
             logger.error(
@@ -292,113 +324,202 @@ def get_restaurant_by_slug(slug: str):
 
 def get_public_restaurant_by_slug(slug: str):
 
-    try:
-        response = (
-            supabase.table("restaurants")
-            .select(RESTAURANT_PUBLIC_COLUMNS)
-            .eq("slug", slug)
-            .is_("deleted_at", "null")
-            .limit(1)
-            .execute()
-        )
-    except Exception as exc:
-        if _is_not_found_error(exc):
-            return None
+    columns = RESTAURANT_PUBLIC_COLUMNS
+    include_deleted_filter = True
 
-        if _is_missing_column_error(exc, "is_open"):
-            logger.warning(
-                "restaurants.is_open is missing; retrying public restaurant "
-                "lookup without that optional column"
-            )
-            response = (
+    while True:
+        try:
+            query = (
                 supabase.table("restaurants")
-                .select(RESTAURANT_PUBLIC_FALLBACK_COLUMNS)
+                .select(columns)
                 .eq("slug", slug)
-                .is_("deleted_at", "null")
+            )
+
+            if include_deleted_filter:
+                query = query.is_("deleted_at", "null")
+
+            response = (
+                query
                 .limit(1)
                 .execute()
             )
-            return response.data[0] if response.data else None
+        except Exception as exc:
+            if _is_not_found_error(exc):
+                return None
 
-        logger.error(
-            "Public restaurant lookup failed slug=%s error=%s",
-            slug,
-            exc,
-            exc_info=True
-        )
-        raise RestaurantLookupError("Restaurant lookup failed") from exc
+            if (
+                include_deleted_filter
+                and _is_missing_column_error(exc, "deleted_at")
+            ):
+                logger.warning(
+                    "restaurants.deleted_at is missing; retrying public "
+                    "restaurant lookup without soft-delete filter"
+                )
+                include_deleted_filter = False
+                continue
 
-    return response.data[0] if response.data else None
+            if (
+                columns == RESTAURANT_PUBLIC_COLUMNS
+                and _is_missing_column_error(exc, "is_open")
+            ):
+                logger.warning(
+                    "restaurants.is_open is missing; retrying public "
+                    "restaurant lookup without that optional column"
+                )
+                columns = RESTAURANT_PUBLIC_FALLBACK_COLUMNS
+                continue
+
+            logger.error(
+                "Public restaurant lookup failed slug=%s error=%s",
+                slug,
+                exc,
+                exc_info=True
+            )
+            raise RestaurantLookupError("Restaurant lookup failed") from exc
+
+        return response.data[0] if response.data else None
 
 
 def get_categories(restaurant_id: str):
 
-    try:
-        response = (
-            supabase.table("categories")
-            .select(CATEGORY_PUBLIC_COLUMNS)
-            .eq("restaurant_id", restaurant_id)
-            .is_("deleted_at", "null")
-            .order("display_order")
-            .execute()
-        )
-    except Exception as exc:
-        logger.error(
-            "Failed to fetch menu categories restaurant_id=%s error=%s",
-            restaurant_id,
-            exc,
-            exc_info=True
-        )
-        raise
+    include_deleted_filter = True
 
-    return response.data
+    while True:
+        try:
+            query = (
+                supabase.table("categories")
+                .select(CATEGORY_PUBLIC_COLUMNS)
+                .eq("restaurant_id", restaurant_id)
+            )
+
+            if include_deleted_filter:
+                query = query.is_("deleted_at", "null")
+
+            response = (
+                query
+                .order("display_order")
+                .execute()
+            )
+        except Exception as exc:
+            if (
+                include_deleted_filter
+                and _is_missing_column_error(exc, "deleted_at")
+            ):
+                logger.warning(
+                    "categories.deleted_at is missing; retrying category "
+                    "lookup without soft-delete filter"
+                )
+                include_deleted_filter = False
+                continue
+
+            logger.error(
+                "Failed to fetch menu categories restaurant_id=%s error=%s",
+                restaurant_id,
+                exc,
+                exc_info=True
+            )
+            raise
+
+        return response.data
 
 
 def get_available_items(restaurant_id: str):
 
-    try:
-        response = (
-            supabase.table("menu_items")
-            .select(MENU_ITEM_PUBLIC_COLUMNS)
-            .eq("restaurant_id", restaurant_id)
-            .eq("is_available", True)
-            .is_("deleted_at", "null")
-            .order("display_order")
-            .execute()
-        )
-    except Exception as exc:
-        logger.error(
-            "Failed to fetch available menu items restaurant_id=%s error=%s",
-            restaurant_id,
-            exc,
-            exc_info=True
-        )
-        raise
+    columns = MENU_ITEM_PUBLIC_COLUMNS
+    include_deleted_filter = True
 
-    return response.data
+    while True:
+        try:
+            query = (
+                supabase.table("menu_items")
+                .select(columns)
+                .eq("restaurant_id", restaurant_id)
+                .eq("is_available", True)
+            )
+
+            if include_deleted_filter:
+                query = query.is_("deleted_at", "null")
+
+            response = (
+                query
+                .order("display_order")
+                .execute()
+            )
+        except Exception as exc:
+            if (
+                columns == MENU_ITEM_PUBLIC_COLUMNS
+                and _is_missing_column_error(exc, "is_bestseller")
+            ):
+                logger.warning(
+                    "menu_items.is_bestseller is missing; retrying public "
+                    "menu item lookup without that optional column"
+                )
+                columns = MENU_ITEM_PUBLIC_FALLBACK_COLUMNS
+                continue
+
+            if (
+                include_deleted_filter
+                and _is_missing_column_error(exc, "deleted_at")
+            ):
+                logger.warning(
+                    "menu_items.deleted_at is missing; retrying public menu "
+                    "item lookup without soft-delete filter"
+                )
+                include_deleted_filter = False
+                continue
+
+            logger.error(
+                "Failed to fetch available menu items restaurant_id=%s error=%s",
+                restaurant_id,
+                exc,
+                exc_info=True
+            )
+            raise
+
+        return response.data
 
 
 def get_all_items(restaurant_id: str):
 
-    try:
-        response = (
-            supabase.table("menu_items")
-            .select("*")
-            .eq("restaurant_id", restaurant_id)
-            .is_("deleted_at", "null")
-            .order("display_order")
-            .execute()
-        )
-    except Exception as exc:
-        logger.error(
-            "Failed to fetch menu items restaurant_id=%s error=%s",
-            restaurant_id,
-            exc,
-            exc_info=True
-        )
-        raise
+    include_deleted_filter = True
 
-    return response.data
+    while True:
+        try:
+            query = (
+                supabase.table("menu_items")
+                .select("*")
+                .eq("restaurant_id", restaurant_id)
+            )
+
+            if include_deleted_filter:
+                query = query.is_("deleted_at", "null")
+
+            response = (
+                query
+                .order("display_order")
+                .execute()
+            )
+        except Exception as exc:
+            if (
+                include_deleted_filter
+                and _is_missing_column_error(exc, "deleted_at")
+            ):
+                logger.warning(
+                    "menu_items.deleted_at is missing; retrying menu item "
+                    "lookup without soft-delete filter"
+                )
+                include_deleted_filter = False
+                continue
+
+            logger.error(
+                "Failed to fetch menu items restaurant_id=%s error=%s",
+                restaurant_id,
+                exc,
+                exc_info=True
+            )
+            raise
+
+        return response.data
 
 
 def get_public_menu_via_rpc(slug: str):

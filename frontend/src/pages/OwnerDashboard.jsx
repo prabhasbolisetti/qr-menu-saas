@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../api/axios";
 import DashboardHeader from "../components/DashboardHeader";
-import { downloadImage } from "../utils/download";
+import QRCodePanel from "../components/QRCodePanel";
 
 const emptyCategoryForm = {
   name: "",
@@ -340,7 +340,9 @@ export default function OwnerDashboard() {
         action={
           restaurant?.slug && (
             <a
-              href={`/menu/${restaurant.slug}`}
+              href={qr?.menu_url || `/menu/${restaurant.slug}`}
+              target="_blank"
+              rel="noreferrer"
               className="inline-flex h-10 items-center justify-center rounded-lg bg-black px-4 text-sm font-semibold text-white hover:bg-gray-900"
             >
               View public menu
@@ -381,22 +383,15 @@ export default function OwnerDashboard() {
         </section>
 
         {qr && (
-          <section className="mt-6 rounded-lg border border-gray-100 bg-white p-4">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-              <img src={qr.qr_image_url} alt="Restaurant QR code" className="h-32 w-32 rounded border border-gray-100" />
-              <div className="min-w-0 flex-1">
-                <h2 className="font-bold text-gray-950">Restaurant QR code</h2>
-                <p className="mt-1 break-all text-sm text-gray-500">{qr.menu_url}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => downloadImage(qr.qr_image_url, `${restaurant.slug}-qr.png`)}
-                className="h-10 rounded-lg border border-gray-200 px-4 text-sm font-semibold text-gray-900 hover:bg-gray-50"
-              >
-                Download QR
-              </button>
-            </div>
-          </section>
+          <div className="mt-6">
+            <QRCodePanel
+              qr={qr}
+              restaurantSlug={restaurant?.slug}
+              title="Guest QR menu"
+              description="Use this link on table tents, posters, receipts, and delivery inserts."
+              onNotice={showSuccess}
+            />
+          </div>
         )}
 
         {restaurant && (

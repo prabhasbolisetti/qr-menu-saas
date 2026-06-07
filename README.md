@@ -85,6 +85,7 @@ Then log in at `/login` and onboard restaurants from the platform admin dashboar
 - Build command: `npm run build`
 - Output directory: `dist`
 - Environment variable: `VITE_API_BASE_URL=https://your-backend.example.com`
+- Optional failover: `VITE_API_FALLBACK_BASE_URLS=https://backup-api.example.com`
 
 ### Backend on Render
 
