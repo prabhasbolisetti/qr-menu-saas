@@ -1,4 +1,5 @@
 import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
@@ -13,6 +14,8 @@ from app.services.qr_service import build_qr_response
 
 logger = logging.getLogger(__name__)
 
+PUBLIC_SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
 router = APIRouter(
     prefix="/menu",
     tags=["Public Menu"],
@@ -20,8 +23,36 @@ router = APIRouter(
 )
 
 
+def _normalize_slug(slug: str):
+
+    return slug.strip().lower()
+
+
+def _validate_public_slug(slug: str):
+
+    normalized_slug = _normalize_slug(slug)
+
+    if not PUBLIC_SLUG_PATTERN.fullmatch(normalized_slug):
+        raise HTTPException(
+            status_code=404,
+            detail="Restaurant not found"
+        )
+
+    return normalized_slug
+
+
+def _set_qr_cache_headers(response: Response):
+
+    response.headers["Cache-Control"] = (
+        "public, max-age=86400, stale-while-revalidate=604800"
+    )
+    response.headers["Vary"] = "Accept-Encoding"
+
+
 @router.get("/{slug}/qr")
-def get_menu_qr(slug: str):
+def get_menu_qr(slug: str, response: Response):
+
+    slug = _validate_public_slug(slug)
 
     try:
         restaurant = get_restaurant_by_slug(slug)
@@ -43,11 +74,15 @@ def get_menu_qr(slug: str):
             detail="Restaurant not found"
         )
 
+    _set_qr_cache_headers(response)
+
     return build_qr_response(restaurant)
 
 
 @router.get("/{slug}")
 def get_menu(slug: str, request: Request, response: Response):
+
+    slug = _validate_public_slug(slug)
 
     try:
         menu_metadata = get_public_menu_metadata_by_slug(slug)

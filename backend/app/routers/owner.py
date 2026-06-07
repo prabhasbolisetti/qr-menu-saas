@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response
 import logging
 
 from app.middleware.auth_middleware import require_role
@@ -113,15 +113,22 @@ def owner_restaurant(
     current_user=Depends(require_role("owner"))
 ):
 
-    return _owner_restaurant(current_user)
+    restaurant = _owner_restaurant(current_user)
+
+    return {
+        **restaurant,
+        "qr": build_qr_response(restaurant)
+    }
 
 
 @router.get("/restaurant/qr")
 def owner_restaurant_qr(
+    response: Response,
     current_user=Depends(require_role("owner"))
 ):
 
     restaurant = _owner_restaurant(current_user)
+    response.headers["Cache-Control"] = "private, max-age=86400"
 
     return build_qr_response(restaurant)
 

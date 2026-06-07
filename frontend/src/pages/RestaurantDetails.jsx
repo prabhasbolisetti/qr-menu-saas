@@ -84,8 +84,7 @@ export default function RestaurantDetails() {
     try {
       const restaurantResponse = await api.get(`/super/restaurants/${id}`);
       const foundRestaurant = restaurantResponse.data;
-      const [qrResponse, categoriesResponse, itemsResponse] = await Promise.all([
-        api.get(`/super/restaurants/${id}/qr`),
+      const [categoriesResponse, itemsResponse] = await Promise.all([
         api.get(`/super/restaurants/${id}/categories`),
         api.get(`/super/restaurants/${id}/items`),
       ]);
@@ -94,7 +93,7 @@ export default function RestaurantDetails() {
       const nextMenu = groupItemsByCategory(nextCategories, nextItems);
 
       setRestaurant(foundRestaurant);
-      setQr(qrResponse.data);
+      setQr(foundRestaurant?.qr || null);
       setCategories(nextCategories);
       setItems(nextItems);
       setMenu(nextMenu);

@@ -37,14 +37,16 @@ function getMenuErrorMessage(error) {
 }
 
 async function fetchPublicMenu(slug) {
+  const encodedSlug = encodeURIComponent(slug);
+
   try {
-    return await api.get(`/menu/${slug}`);
+    return await api.get(`/menu/${encodedSlug}`);
   } catch (error) {
     const primaryBaseUrl = api.defaults.baseURL?.replace(/\/+$/, "");
 
     if (!error.response && primaryBaseUrl !== DEFAULT_API_BASE_URL) {
       return axios.get(
-        `${DEFAULT_API_BASE_URL}/menu/${encodeURIComponent(slug)}`,
+        `${DEFAULT_API_BASE_URL}/menu/${encodedSlug}`,
         {
           timeout: 30000,
         }
@@ -71,6 +73,8 @@ export default function PublicMenu() {
     async function fetchMenu() {
       setError("");
       setLoading(true);
+      setActiveCategory(0);
+      setSearchTerm("");
 
       for (let attempt = 0; attempt <= MENU_FETCH_RETRIES; attempt += 1) {
         try {

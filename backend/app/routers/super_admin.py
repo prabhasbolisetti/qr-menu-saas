@@ -3,7 +3,8 @@ from fastapi import (
     Depends,
     UploadFile,
     File,
-    HTTPException
+    HTTPException,
+    Response
 )
 import logging
 
@@ -128,12 +129,16 @@ def get_restaurant(
             detail="Restaurant not found"
         )
 
-    return restaurant
+    return {
+        **restaurant,
+        "qr": build_qr_response(restaurant)
+    }
 
 
 @router.get("/restaurants/{restaurant_id}/qr")
 def get_restaurant_qr(
     restaurant_id: str,
+    response: Response,
     current_user=Depends(require_role("super"))
 ):
 
@@ -144,6 +149,8 @@ def get_restaurant_qr(
             status_code=404,
             detail="Restaurant not found"
         )
+
+    response.headers["Cache-Control"] = "private, max-age=86400"
 
     return build_qr_response(restaurant)
 

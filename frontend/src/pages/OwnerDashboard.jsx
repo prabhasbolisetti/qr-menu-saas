@@ -59,18 +59,18 @@ export default function OwnerDashboard() {
     setError("");
 
     try {
-      const [restaurantResponse, categoriesResponse, itemsResponse, qrResponse] = await Promise.all([
+      const [restaurantResponse, categoriesResponse, itemsResponse] = await Promise.all([
         api.get("/owner/restaurant"),
         api.get("/owner/categories"),
         api.get("/owner/items"),
-        api.get("/owner/restaurant/qr"),
       ]);
 
+      const nextRestaurant = restaurantResponse.data;
       const nextItems = itemsResponse.data || [];
-      setRestaurant(restaurantResponse.data);
+      setRestaurant(nextRestaurant);
       setCategories(categoriesResponse.data || []);
       setItems(nextItems);
-      setQr(qrResponse.data);
+      setQr(nextRestaurant?.qr || null);
       setEditDrafts(
         nextItems.reduce((drafts, item) => {
           drafts[item.id] = {
